@@ -231,6 +231,7 @@ const S = { me: null, saves: [], extra: {}, failed: [], pending: [], view: "toda
 
 // ---------- 小物 ----------
 const $ = (id) => document.getElementById(id);
+function cleanBrand(v) { return v && !/^\s*(不明|なし|無し|未記載|記載なし|情報なし|unknown|none|n\/a)\s*$/i.test(v) ? v : ""; }
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const tag = (c) => CAT[c] ? `<span class="tag" style="background:${CAT[c].bg};color:${CAT[c].fg}">${CAT[c].label}</span>` : "";
 const fmtDate = (d) => { const x = new Date(d); return `${x.getMonth() + 1}/${x.getDate()}`; };
@@ -598,7 +599,7 @@ function bindExtras(s) {
     const url = $("watchUrl").value.trim(); if (!url) return $("watchUrl").focus();
     $("watchOut").textContent = "値段を読んでいます…";
     try {
-      const r = await call("assist", { action: "watch_price", saveId: s.id, name: [s.details.products[0].brand, s.details.products[0].name].filter(Boolean).join(" "), url });
+      const r = await call("assist", { action: "watch_price", saveId: s.id, name: [cleanBrand(s.details.products[0].brand), s.details.products[0].name].filter(Boolean).join(" "), url });
       $("watchOut").textContent = r.error ? r.error : `今は ${Number(r.price).toLocaleString()}円。下がったらお知らせします`;
     } catch (e) { $("watchOut").textContent = e.message; }
   };
@@ -790,7 +791,7 @@ function detailHtml(s) {
   const recipe = d.recipe?.ingredients?.length || d.recipe?.steps?.length ? `<div class="box"><h3>材料${d.recipe.servings ? `（${d.recipe.servings}人分）` : ""}</h3>${[d.recipe.minutes && `約${d.recipe.minutes}分`, d.recipe.kcal && `1人分 約${d.recipe.kcal}kcal`, d.recipe.protein_g && `たんぱく質 約${d.recipe.protein_g}g`].filter(Boolean).length ? `<div class="small" style="margin-bottom:6px"><b>${[d.recipe.minutes && `約${d.recipe.minutes}分`, d.recipe.kcal && `1人分 約${d.recipe.kcal}kcal`, d.recipe.protein_g && `たんぱく質 約${d.recipe.protein_g}g`].filter(Boolean).join("・")}</b> <span class="muted">（AIの目安）</span></div>` : ""}<ul class="clean">${(d.recipe.ingredients || []).map((x) => `<li>${esc(x.name)}${x.quantity ? ` <span class="muted">${esc(x.quantity)}</span>` : ""}</li>`).join("")}</ul>
     ${d.recipe.ingredients?.length ? `<div style="margin-top:10px"><button class="btn sm" id="toShop">材料を買い物リストに入れる</button></div>` : ""}
     ${d.recipe.steps?.length ? `<h3 style="margin-top:14px">作り方</h3><ol class="steps2">${d.recipe.steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}</div>` : "";
-  const products = d.products?.length ? `<div class="box"><h3>紹介されていた物</h3>${d.products.map((p) => { const q = [p.brand, p.name].filter(Boolean).join(" "); return `<div class="place"><div class="bold">${esc(q)}</div>${p.kind ? `<div class="small muted">${esc(p.kind)}</div>` : ""}<div class="links"><a class="btn out sm" target="_blank" rel="noopener" href="${rakutenUrl(q)}">楽天で探す</a><a class="btn out sm" target="_blank" rel="noopener" href="${amazonUrl(q)}">Amazonで探す</a></div></div>`; }).join("")}</div>` : "";
+  const products = d.products?.length ? `<div class="box"><h3>紹介されていた物</h3>${d.products.map((p) => { const q = [cleanBrand(p.brand), p.name].filter(Boolean).join(" "); return `<div class="place"><div class="bold">${esc(q)}</div>${p.kind ? `<div class="small muted">${esc(p.kind)}</div>` : ""}<div class="links"><a class="btn out sm" target="_blank" rel="noopener" href="${rakutenUrl(q)}">楽天で探す</a><a class="btn out sm" target="_blank" rel="noopener" href="${amazonUrl(q)}">Amazonで探す</a></div></div>`; }).join("")}</div>` : "";
   const works = d.works?.length ? `<div class="box"><h3>作品</h3>${d.works.map((w) => `<div class="place"><div class="bold">${esc(w.title)}</div><div class="small muted">${esc([w.kind, w.where].filter(Boolean).join("・"))}</div></div>`).join("")}</div>` : "";
   return `<div class="top"><button class="btn out sm" id="close">✕ 閉じる</button><div class="spacer"></div>${/iPhone|iPad|Android/i.test(navigator.userAgent) ? `<button class="btn out sm" id="inApp">アプリで開く</button>` : ""}${s.source_url ? `<a class="btn sm" target="_blank" rel="noopener" href="${esc(s.source_url)}">元の投稿を開く ↗</a>` : ""}</div>
   <div class="in">
@@ -1033,7 +1034,7 @@ async function renderShop() {
   const groups = {};
   for (const it of S.shop.filter((x) => !x.done)) (groups[it.aisle || "未分類"] ??= []).push(it);
   const done = S.shop.filter((x) => x.done);
-  const row = (it) => `<label class="shop ${it.done ? "done" : ""}"><input type="checkbox" data-sh="${it.id}" ${it.done ? "checked" : ""}><span style="flex:1">${esc(it.name)}${it.quantity ? ` <span class="muted small">${esc(it.quantity)}</span>` : ""}</span></label>`;
+  const row = (it) => `<label class="shop ${it.done ? "done" : ""}"><input type="checkbox" data-sh="${it.id}" ${it.done ? "checked" : ""}><span style="flex:1">${esc(it.name.replace(/^\s*(不明|なし|無し|未記載|unknown)[\s　]+/i, ""))}${it.quantity ? ` <span class="muted small">${esc(it.quantity)}</span>` : ""}</span></label>`;
   m.innerHTML = `<div class="head"><h1>買い物リスト</h1><div class="spacer"></div><button class="btn out sm" id="shareShop">家族と共有</button><button class="btn out sm" id="aisle">売り場ごとに分ける</button>${done.length ? `<button class="btn out sm" id="clr">買った物を消す（${done.length}）</button>` : ""}</div>
     <div class="box" style="max-width:640px"><form id="addShop" style="display:flex;gap:8px;margin-bottom:6px"><input class="field" id="si" placeholder="買う物を足す（例：牛乳）"><button class="btn">足す</button></form>
     ${S.shop.length ? Object.entries(groups).map(([a, xs]) => `<div class="aisle">${esc(a)}</div>${xs.map(row).join("")}`).join("") + (done.length ? `<div class="aisle">買った</div>${done.map(row).join("")}` : "") : '<p class="muted small">レシピの保存から「材料を買い物リストに入れる」で追加できます。</p>'}</div>`;
