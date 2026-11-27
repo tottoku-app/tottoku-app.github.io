@@ -250,7 +250,10 @@ async function call(fn, body) {
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.error) throw new Error(json.error ?? `通信エラー（${res.status}）`);
+  if (!res.ok || json.error) {
+    if (json.code === "plus_required" && /とっとく＋なら/.test(json.error || "")) setTimeout(() => plusGate("この先", [json.error, ...PLUS_MERITS]), 0);
+    throw new Error(json.error ?? `通信エラー（${res.status}）`);
+  }
   return json;
 }
 
@@ -326,6 +329,8 @@ function showApp() {
   const nq = new URLSearchParams(location.search).get("notion");
   if (nq) { history.replaceState(null, "", location.pathname + location.hash); if (nq === "ok") { toast("Notionとつながりました。書き出しています…"); notionSync(); } else toast("Notionとつなげませんでした"); }
   setTabs(); load(); subscribe();
+  checkPrices();
+  sb.from("profiles").select("food_avoid").eq("id", S.me.profileId).maybeSingle().then(({ data }) => (S.avoid = data?.food_avoid || ""));
 }
 
 function setTabs() { document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.v === S.view)); }
@@ -476,6 +481,7 @@ function renderToday() {
   const old = S.saves.filter((s) => !s.done_at && !s.plan_date && Date.now() - new Date(s.created_at).getTime() > 30 * 86400000);
   if (old.length) { const s = old[Number(today.replace(/-/g, "")) % old.length]; h += sec("わすれていませんか？", row(s, `${Math.floor((Date.now() - new Date(s.created_at).getTime()) / 86400000)}日前にとっといた`)); }
 
+  if (!empty) h += todayExtras();
   if (!empty) h += `<div class="box" style="margin-bottom:12px;cursor:pointer;display:flex;align-items:center;gap:10px" id="discoverBtn"><div style="flex:1"><div class="bold" style="font-size:16px">見つける</div><div class="small muted">近くでみんながとっといているお店・あなたの好みに近いお店</div></div><span class="bold">›</span></div>`;
 
   // 月の記録
@@ -540,6 +546,215 @@ async function openDiscover() {
   } catch (err) { const el = document.getElementById("dsc"); if (el) el.innerHTML = `<p class="small" style="color:var(--danger)">${esc(err.message)}</p>`; }
 }
 
+// ---------- ブラウザ版の追加（詳細のおまけ・取り込み・献立・ハンコ帳・家族の買い物・みんなのリスト・ショートカット）----------
+const SHOP_WEB = "https://tottoku-app.jp/s/?c=";
+const LIST_WEB = "https://tottoku-app.jp/l/?code=";
+const plus = () => S.me?.plan === "plus";
+
+// ＋の機能に来たとき：何ができるかを見せて、アプリでの登録へ
+function plusGate(what, merits) {
+  modal(`<h2>${esc(what)}は、とっとく＋の機能です</h2>
+    <div class="box" style="border:2px solid var(--ink)"><div class="bold">とっとく＋（月300円・年3,000円）</div><ul class="small" style="margin:6px 0 0;padding-left:18px;line-height:1.9">${merits.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>
+    <p class="small muted" style="margin:0">登録はスマホのアプリから（App Storeの決済）。登録すると、このブラウザ版でもすぐ使えます。</p>
+    <div class="links" style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="${APP_STORE}" target="_blank" rel="noopener">アプリで登録する</a><a class="btn out" href="https://line.me/R/msg/text/?${encodeURIComponent("とっとく\n" + APP_STORE)}" target="_blank" rel="noopener">スマホにLINEで送る</a></div>`, () => {});
+}
+const PLUS_MERITS = ["今までの保存をまとめて取り込む（Instagram・TikTok・Googleマップ・Xのブックマーク）", "保存したレシピで1週間の献立と、まとめた買い物リスト", "動画の中の言葉まで読んで分ける", "保存の数は無制限"];
+
+// ---- 詳細のおまけ：似ている保存・材料の置き換え・苦手なもの・値下がり・運動 ----
+function detailExtras(s) {
+  const d = s.details || {};
+  const mine = s.profile_id === S.me.profileId;
+  let h = "";
+  const avoid = (S.avoid || "").split(/[、,，\s]+/).filter(Boolean);
+  const hits = (d.recipe?.ingredients || []).filter((x) => avoid.some((a) => x.name.includes(a))).map((x) => x.name);
+  if (hits.length) h += `<div class="box" style="background:var(--warn)"><b style="color:var(--danger)">苦手・アレルギーに入れたもの：${esc(hits.join("、"))}</b></div>`;
+  if (mine && d.recipe?.ingredients?.length) h += `<div class="box"><h3>材料の置き換え</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><input class="field" id="swapNeed" placeholder="例：生クリームがない／パクチーが苦手／安くしたい" style="flex:1;min-width:200px"><button class="btn sm" id="swapGo">代わりを出す</button></div><div id="swapOut" class="small" style="margin-top:8px"></div></div>`;
+  if (d.workout?.exercises?.length) h += `<div class="box"><h3>運動メニュー</h3>${d.workout.exercises.map((e) => `<div style="display:flex;justify-content:space-between;padding:3px 0"><span>${esc(e.name)}</span><b class="muted">${[e.reps && `${e.reps}回`, e.seconds && `${e.seconds}秒`, e.sets && `×${e.sets}セット`].filter(Boolean).join(" ")}</b></div>`).join("")}</div>`;
+  if (mine && d.products?.length) h += `<div class="box"><h3>値下がりのお知らせ</h3><div class="small muted" style="margin-bottom:6px">商品ページのリンクを入れると、1日1回値段を確かめて、下がったら「今日」でお知らせします。</div><div style="display:flex;gap:8px"><input class="field" id="watchUrl" placeholder="楽天・Yahoo!ショッピング・公式ストアの商品ページ" value="${s.platform === "web" && s.source_url ? esc(s.source_url) : ""}" style="flex:1"><button class="btn sm" id="watchGo">見張る</button></div><div id="watchOut" class="small" style="margin-top:6px"></div></div>`;
+  const tags = new Set(s.tags || []);
+  const sim = S.saves.filter((x) => x.id !== s.id && (x.tags || []).some((t) => tags.has(t))).slice(0, 5);
+  if (sim.length) h += `<div class="box"><h3>似ている保存</h3>${sim.map((x) => `<button class="row" data-open2="${x.id}" style="display:flex;width:100%;text-align:left;padding:6px 0;border-top:1px solid var(--line)"><div style="flex:1"><div class="bold">${esc(x.title)}</div><div class="small muted">${esc([x.places?.[0]?.name, ...(x.tags || []).slice(0, 2)].filter(Boolean).join("・"))}</div></div></button>`).join("")}</div>`;
+  return h;
+}
+function bindExtras(s) {
+  const p = document.querySelector(".panel"); if (!p) return;
+  p.querySelectorAll("[data-open2]").forEach((b) => (b.onclick = () => openSave(b.dataset.open2)));
+  if ($("swapGo")) $("swapGo").onclick = async () => {
+    $("swapOut").textContent = "考えています…";
+    try {
+      const r = await call("assist", { action: "swap", recipe: { title: s.title, ingredients: s.details.recipe.ingredients }, need: $("swapNeed").value });
+      $("swapOut").innerHTML = (r.swaps || []).map((x) => `<div style="padding:4px 0"><b>${esc(x.from)} → ${esc(x.to)}</b><div class="muted">${esc(x.how)}</div></div>`).join("") + (r.note ? `<div class="muted" style="margin-top:4px">${esc(r.note)}</div>` : "") || "置き換えはいらなそうです";
+    } catch (e) { $("swapOut").textContent = e.message; }
+  };
+  if ($("watchGo")) $("watchGo").onclick = async () => {
+    const url = $("watchUrl").value.trim(); if (!url) return $("watchUrl").focus();
+    $("watchOut").textContent = "値段を読んでいます…";
+    try {
+      const r = await call("assist", { action: "watch_price", saveId: s.id, name: [s.details.products[0].brand, s.details.products[0].name].filter(Boolean).join(" "), url });
+      $("watchOut").textContent = r.error ? r.error : `今は ${Number(r.price).toLocaleString()}円。下がったらお知らせします`;
+    } catch (e) { $("watchOut").textContent = e.message; }
+  };
+}
+
+// ---- 今日のおまけ：値下がり・献立・取り込み・ハンコ帳 ----
+async function checkPrices() {
+  const last = Number(localStorage.getItem("tottoku.web.prices") || 0);
+  if (Date.now() - last < 12 * 3600000) return;
+  localStorage.setItem("tottoku.web.prices", String(Date.now()));
+  try { const r = await call("assist", { action: "check_prices" }); if (r.drops?.length) { S.drops = r.drops; if (S.view === "today") render(); } } catch {}
+}
+function todayExtras() {
+  let h = "";
+  if (S.drops?.length) h += `<div class="box" style="margin-bottom:12px"><div class="bold" style="font-size:16px;margin-bottom:6px">値下がりしました</div>${S.drops.map((d) => `<div style="display:flex;gap:10px;align-items:center;padding:4px 0"><a href="${esc(d.url)}" target="_blank" rel="noopener" class="bold" style="flex:1">${esc(d.name)}</a><s class="small muted">${d.from.toLocaleString()}円</s><b style="color:var(--danger)">${d.to.toLocaleString()}円</b></div>`).join("")}</div>`;
+  const recipes = S.saves.filter((s) => s.categories.includes("cook") && s.details?.recipe?.ingredients?.length);
+  if (recipes.length >= 3) h += `<div class="box" style="margin-bottom:12px;display:flex;align-items:center;gap:10px"><div style="flex:1"><div class="bold" style="font-size:16px">とっといたレシピで、1週間の献立</div><div class="small muted">${recipes.length}品から組んで、材料をまとめて買い物リストへ${plus() ? "" : "（＋）"}</div></div><button class="btn sm" id="menuGo">組む</button></div>`;
+  if (S.saves.some((s) => s.done_at)) h += `<div class="box" style="margin-bottom:12px;display:flex;align-items:center;gap:10px"><div style="flex:1"><div class="bold" style="font-size:16px">ハンコ帳</div><div class="small muted">「行った・作った」を押したものが、月ごとにハンコで並びます。画像にして送れます</div></div><button class="btn out sm" id="stampsGo">見る</button></div>`;
+  if (S.saves.length < 30) h += `<div class="box" style="margin-bottom:12px;display:flex;align-items:center;gap:10px"><div style="flex:1"><div class="bold" style="font-size:16px">今まで保存したもの、まとめて入れませんか？</div><div class="small muted">Instagram・TikTok・Googleマップに保存してきたものを、一気に分けて取り込めます${plus() ? "" : "（＋）"}</div></div><button class="btn out sm" id="importGo">取り込む</button></div>`;
+  return h;
+}
+document.addEventListener("click", (e) => {
+  if (e.target.id === "menuGo") return plus() ? openMenu() : plusGate("1週間の献立", PLUS_MERITS);
+  if (e.target.id === "importGo") return plus() ? openImport() : plusGate("まとめて取り込み", PLUS_MERITS);
+  if (e.target.id === "stampsGo") return openStamps();
+});
+
+// ---- 献立（＋）----
+async function openMenu() {
+  modal(`<h2>1週間の献立</h2><div id="menuOut"><p class="small muted">とっといたレシピから組んでいます…</p></div>`, () => {});
+  try {
+    const r = await call("assist", { action: "weekly_menu", days: 7 });
+    if (r.error === "plus_required") { closeModal(); return plusGate("1週間の献立", PLUS_MERITS); }
+    const byId = Object.fromEntries(S.saves.map((s) => [s.id, s]));
+    const el = $("menuOut"); if (!el) return;
+    el.innerHTML = `${(r.days || []).map((d, i) => `<div class="box" style="padding:10px 14px"><span class="small muted bold">${i + 1}日目</span> <a href="#" class="bold" data-open3="${d.id ?? d.saveId ?? ""}">${esc(d.title ?? byId[d.id]?.title ?? "")}</a></div>`).join("")}
+      ${r.ingredients?.length ? `<div class="box"><div class="bold">まとめた材料（${r.ingredients.length}品）</div><div class="small muted">${esc(r.ingredients.map((x) => x.name + (x.quantity ? " " + x.quantity : "")).join("、"))}</div><button class="btn sm" id="menuShop" style="margin-top:8px">買い物リストに入れる</button></div>` : ""}`;
+    el.querySelectorAll("[data-open3]").forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); if (a.dataset.open3) { closeModal(); openSave(a.dataset.open3); } }));
+    if ($("menuShop")) $("menuShop").onclick = async () => { await addShop(r.ingredients); toast("買い物リストに入れました"); };
+  } catch (e) { const el = $("menuOut"); if (el) el.innerHTML = `<p class="small" style="color:var(--danger)">${esc(e.message)}</p>`; }
+}
+
+// ---- まとめて取り込み（＋）：Instagram・TikTok・Googleマップのデータ書き出しから ----
+const IMPORT_KINDS = {
+  instagram: { label: "Instagramの保存済み", re: /https?:\/\/(?:www\.)?instagram\.com\/(?:p|reels?|tv)\/[A-Za-z0-9_-]+/g, how: "Instagram の設定 →「アカウントセンター」→「あなたの情報とアクセス許可」→「情報をダウンロード」で JSON を選ぶ。届いたファイルを展開して saved_posts.json を選びます。" },
+  tiktok: { label: "TikTokのお気に入り", re: /https?:\/\/(?:www\.|vm\.|vt\.)?tiktok(?:v)?\.com\/[^\s"',<>]+/g, how: "TikTok の設定 →「アカウント」→「データをダウンロード」で JSON を選ぶ。展開した user_data_tiktok.json を選びます。" },
+  google_maps: { label: "Googleマップのリスト", re: /https?:\/\/(?:www\.)?(?:google\.[a-z.]+\/maps\/place\/[^\s"',<>]+|maps\.app\.goo\.gl\/[A-Za-z0-9]+|goo\.gl\/maps\/[A-Za-z0-9]+)/g, how: "takeout.google.com で「保存済み」だけを書き出す。展開したリストの CSV（例：行ってみたい.csv）を選びます。" },
+  urls: { label: "リンクのメモ・ブックマーク", re: /https?:\/\/[^\s"',<>]+/g, how: "リンクを並べたメモ（.txt）や、ブラウザのブックマークの書き出し（.html）を選びます。" },
+};
+function openImport() {
+  modal(`<h2>まとめて取り込む</h2><p class="small muted" style="margin:0">ファイルを選ぶと、中のリンクを拾って、1件ずつ分けて取り込みます。ファイルはこのパソコンの中で読み、リンクだけを送ります。</p>
+    ${Object.entries(IMPORT_KINDS).map(([k, v]) => `<div class="box"><div class="bold">${v.label}</div><div class="small muted" style="margin:4px 0 8px">${v.how}</div><label class="btn out sm" style="cursor:pointer">ファイルを選ぶ<input type="file" data-kind="${k}" accept=".json,.csv,.txt,.html,.htm" hidden></label></div>`).join("")}
+    <div id="impOut"></div>`, (root) => {
+    root.querySelectorAll("[data-kind]").forEach((inp) => (inp.onchange = async () => {
+      const f = inp.files?.[0]; if (!f) return;
+      const kind = inp.dataset.kind; const text = await f.text();
+      const urls = [...new Set(text.match(IMPORT_KINDS[kind].re) || [])].map((u) => u.replace(/[)\].,]+$/, ""));
+      const out = root.querySelector("#impOut");
+      if (!urls.length) { out.innerHTML = `<div class="box small" style="color:var(--danger)">リンクが見つかりませんでした。選んだファイルが合っているか確かめてください。</div>`; return; }
+      try {
+        const r = await call("ingest", { action: "import_start", kind, urls });
+        if (!r.total) { out.innerHTML = `<div class="box small">新しく取り込むものはありません（${r.skipped}件はもう保存してあります）</div>`; return; }
+        await followImport(r, out);
+      } catch (e) { if (/plus/.test(e.message)) { closeModal(); plusGate("まとめて取り込み", PLUS_MERITS); } else out.innerHTML = `<div class="box small" style="color:var(--danger)">${esc(e.message)}</div>`; }
+    }));
+  });
+}
+async function followImport(r, out) {
+  let errors = 0;
+  for (;;) {
+    try {
+      const st = await call("ingest", { action: "import_step", importId: r.importId });
+      const pct = Math.round(((st.done + st.failed) / Math.max(st.total, 1)) * 100);
+      out.innerHTML = `<div class="box"><div class="bold">${st.finished ? "取り込みが終わりました" : "取り込んでいます（このまま開いておいてください）"}</div><div style="height:8px;background:var(--line);border-radius:4px;margin:8px 0;overflow:hidden"><div style="height:8px;width:${pct}%;background:var(--ink)"></div></div><div class="small muted">${st.done + st.failed} / ${st.total}件${st.failed ? `（読めなかったもの ${st.failed}件）` : ""}。Instagram・TikTok の分は、スマホのアプリを開くと読み取ります。</div></div>`;
+      errors = 0; if (st.finished || !document.getElementById("impOut")) { load(); return; }
+    } catch { if (++errors >= 5) { out.innerHTML += `<div class="small muted">通信が不安定なので止めました。もう一度このファイルを選ぶと続きから進めます。</div>`; return; } await new Promise((ok) => setTimeout(ok, 3000)); }
+  }
+}
+
+// ---- ハンコ帳：月ごとのハンコを並べて、画像（PNG）にして保存・送る ----
+const STAMP_RED = "#C2410C";
+function openStamps() {
+  const done = S.saves.filter((s) => s.done_at).sort((a, b) => (a.done_at < b.done_at ? 1 : -1));
+  const months = {}; for (const s of done) (months[s.done_at.slice(0, 7)] ??= []).push(s);
+  const keys = Object.keys(months);
+  let cur = keys[0];
+  const draw = () => {
+    const xs = months[cur] || [];
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${keys.map((k) => `<button class="btn ${k === cur ? "" : "out"} sm" data-mo="${k}">${Number(k.slice(5))}月 ${months[k].length}</button>`).join("")}</div>
+      <div class="box"><div style="display:flex;align-items:flex-end;justify-content:space-between"><div><div class="small muted bold">${cur.slice(0, 4)}年</div><div class="bold" style="font-size:22px">${Number(cur.slice(5))}月のハンコ帳</div></div><div class="bold" style="font-size:36px;color:${STAMP_RED}">${xs.length}</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:14px;margin-top:12px">${xs.map((s, i) => `<div style="text-align:center;cursor:pointer" data-open4="${s.id}"><div style="width:84px;height:84px;margin:0 auto;border:3px solid ${STAMP_RED};border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;transform:rotate(${((i * 37) % 21) - 10}deg);color:${STAMP_RED};opacity:.92"><b style="font-size:14px">${esc(doneVerb(s))}</b><span style="font-size:10px">${s.done_at.slice(0, 10).replaceAll("-", ".")}</span></div><div class="small bold" style="margin-top:6px">${esc(s.places?.[0]?.name || s.title)}</div></div>`).join("")}</div>
+      <div class="small muted" style="text-align:right;margin-top:10px">SNSで見て、ほんとにやった。— とっとく</div></div>
+      <button class="btn" id="stampPng">画像にして保存</button>`;
+  };
+  modal(`<h2>ハンコ帳</h2><div id="stampBox">${keys.length ? draw() : `<p class="muted">まだハンコがありません。保存を開いて「行った・作った」を押すと、ここにたまります。</p>`}</div>`, (root) => {
+    const bind = () => {
+      root.querySelectorAll("[data-mo]").forEach((b) => (b.onclick = () => { cur = b.dataset.mo; root.querySelector("#stampBox").innerHTML = draw(); bind(); }));
+      root.querySelectorAll("[data-open4]").forEach((b) => (b.onclick = () => { closeModal(); openSave(b.dataset.open4); }));
+      const png = root.querySelector("#stampPng"); if (png) png.onclick = () => stampPng(cur, months[cur]);
+    };
+    bind();
+  });
+}
+// 画像は自前で描く（外の部品を読まない）
+function stampPng(month, xs) {
+  const cols = 3, cell = 220, head = 170, rows = Math.max(1, Math.ceil(xs.length / cols));
+  const c = document.createElement("canvas"); c.width = cols * cell + 60; c.height = head + rows * cell + 70;
+  const g = c.getContext("2d");
+  g.fillStyle = "#F5F4F0"; g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = "#1A1A1E"; g.font = "bold 22px sans-serif"; g.fillText(`${month.slice(0, 4)}年`, 40, 60);
+  g.font = "900 44px sans-serif"; g.fillText(`${Number(month.slice(5))}月のハンコ帳`, 40, 115);
+  g.fillStyle = STAMP_RED; g.font = "900 60px sans-serif"; g.textAlign = "right"; g.fillText(String(xs.length), c.width - 40, 120); g.textAlign = "center";
+  xs.forEach((s, i) => {
+    const x = 30 + (i % cols) * cell + cell / 2, y = head + Math.floor(i / cols) * cell + 80;
+    g.save(); g.translate(x, y); g.rotate((((i * 37) % 21) - 10) * Math.PI / 180);
+    g.strokeStyle = STAMP_RED; g.lineWidth = 5; g.beginPath(); g.arc(0, 0, 64, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 1.5; g.beginPath(); g.arc(0, 0, 56, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = STAMP_RED; g.font = "900 24px sans-serif"; g.fillText(doneVerb(s), 0, 4);
+    g.font = "bold 15px sans-serif"; g.fillText(s.done_at.slice(0, 10).replaceAll("-", "."), 0, 28); g.restore();
+    g.fillStyle = "#1A1A1E"; g.font = "bold 18px sans-serif";
+    const name = (s.places?.[0]?.name || s.title); g.fillText(name.length > 12 ? name.slice(0, 12) + "…" : name, x, y + 100);
+  });
+  g.fillStyle = "#5F6068"; g.font = "16px sans-serif"; g.textAlign = "right"; g.fillText("SNSで見て、ほんとにやった。— とっとく", c.width - 30, c.height - 24);
+  const a = document.createElement("a"); a.download = `tottoku-${month}.png`; a.href = c.toDataURL("image/png"); a.click();
+}
+
+// ---- 買い物：家族と共有しているときは、そのリストを使う ----
+async function shopTarget() {
+  if (S.shopOwner) return S.shopOwner;
+  const { data } = await sb.from("shopping_members").select("owner_id").eq("member_id", S.me.profileId).order("created_at").limit(1);
+  S.shopOwner = data?.[0]?.owner_id || S.me.profileId;
+  return S.shopOwner;
+}
+// 同じ物は足し合わせる（2個＋1個→3個）
+function mergeQty(a, b) {
+  const p = (q) => { const m = String(q || "").normalize("NFKC").trim().match(/^(大さじ|小さじ)?\s*(\d+(?:\.\d+)?)\s*([^\d\s]*)$/); return m ? { pre: m[1] || "", n: Number(m[2]), u: m[3] || "" } : null; };
+  const x = p(a), y = p(b);
+  if (x && y && x.u === y.u && x.pre === y.pre) return `${x.pre}${Math.round((x.n + y.n) * 100) / 100}${x.u}`;
+  if (!a) return b || null; if (!b) return a; return a === b ? a : `${a}＋${b}`;
+}
+async function addShop(items, saveId = null) {
+  const owner = await shopTarget();
+  const norm = (s) => String(s).normalize("NFKC").replace(/\s/g, "").toLowerCase();
+  const { data } = await sb.from("shopping_items").select("id, name, quantity").eq("profile_id", owner).eq("done", false);
+  const have = new Map((data || []).map((x) => [norm(x.name), x]));
+  const fresh = [];
+  for (const it of items) {
+    const k = norm(it.name); if (!k) continue;
+    const old = have.get(k);
+    if (old) { if (it.quantity) { const q = mergeQty(old.quantity, it.quantity); if (q !== old.quantity) { old.quantity = q; await sb.from("shopping_items").update({ quantity: q }).eq("id", old.id); } } continue; }
+    have.set(k, { name: it.name }); fresh.push({ profile_id: owner, save_id: saveId, name: it.name, quantity: it.quantity ?? null });
+  }
+  if (fresh.length) await sb.from("shopping_items").insert(fresh);
+  S.shop = null;
+}
+
+// ---- キーボード：/ で探す、N で保存 ----
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+  if (e.key === "/") { e.preventDefault(); $("q")?.focus(); }
+  else if (e.key === "n" || e.key === "N") { e.preventDefault(); $("addBtn")?.click(); }
+});
+
 // ---------- 詳細 ----------
 function openSave(id) {
   const s = S.saves.find((x) => x.id === id) || S.extra[id]; if (!s) return;
@@ -584,7 +799,7 @@ function detailHtml(s) {
     <div class="box ${mine ? "" : "hide"}"><h3>分類 <span class="muted small" style="font-weight:400">（押して切り替え）</span></h3><div class="cats" id="cats">${CATS.map((c) => `<button data-c="${c}" style="${s.categories.includes(c) ? `background:${CAT[c].bg};color:${CAT[c].fg};border-color:${CAT[c].accent}` : "background:#F5F4F0;color:#5F6068"}">${CAT[c].label}<span class="small" style="font-weight:400"> ${CAT[c].sub}</span></button>`).join("")}</div></div>
     ${s.summary ? `<div class="box"><h3>まとめ</h3><div>${esc(s.summary)}</div></div>` : ""}
     ${places ? `<div class="box"><h3>お店・スポット</h3>${places}</div>` : ""}
-    ${recipe}${products}${works}
+    ${recipe}${products}${works}${detailExtras(s)}
     ${mine ? `<div class="box"><h3>タグ</h3><input class="field" id="tags" value="${esc((s.tags || []).join("、"))}" placeholder="「、」で区切って入力"></div>
     <div class="box"><h3>メモ</h3><textarea class="field" id="memo" placeholder="自分用のメモ">${esc(s.memo || "")}</textarea></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn out" id="toList">リストに入れる</button><div class="spacer"></div><button class="btn danger" id="del">この保存を消す</button></div>` : ""}
@@ -593,6 +808,7 @@ function detailHtml(s) {
 
 function bindDetail(s) {
   if ($("inApp")) $("inApp").onclick = () => openInApp();
+  bindExtras(s);
   $("close").onclick = closeLayer;
   const refresh = () => { const p = document.querySelector(".panel"); const top = p.scrollTop; p.innerHTML = detailHtml(s); p.scrollTop = top; bindDetail(s); render(); };
   $("cats").onclick = async (e) => {
@@ -602,7 +818,7 @@ function bindDetail(s) {
     await sb.from("saves").update({ categories: s.categories, needs_review: false, updated_at: new Date().toISOString() }).eq("id", s.id);
     await sb.from("corrections").insert({ profile_id: S.me.profileId, save_id: s.id, before: { title: s.title, categories: before }, after: { categories: s.categories } });
   };
-  if ($("toShop")) $("toShop").onclick = async () => { const items = s.details.recipe.ingredients.map((x) => ({ profile_id: S.me.profileId, save_id: s.id, name: x.name, quantity: x.quantity ?? null })); await sb.from("shopping_items").insert(items); S.shop = null; toast(`材料 ${items.length}品を買い物リストに入れました`); };
+  if ($("toShop")) $("toShop").onclick = async () => { const items = s.details.recipe.ingredients.map((x) => ({ name: x.name, quantity: x.quantity ?? null })); await addShop(items, s.id); toast(`材料を買い物リストに入れました（同じ物は足し合わせ）`); };
   if ($("planDate")) {
     const savePlan = async () => { s.plan_date = $("planDate").value || null; s.plan_slot = s.plan_date ? ($("planSlot").value || null) : null; refresh(); await sb.from("saves").update({ plan_date: s.plan_date, plan_slot: s.plan_slot }).eq("id", s.id); toast(s.plan_date ? "予定に入れました" : "予定から外しました"); };
     $("planDate").onchange = savePlan; $("planSlot").onchange = savePlan;
@@ -767,10 +983,18 @@ async function renderLists() {
   if (!S.listId && S.lists.length) S.listId = S.lists[0].id;
   const side = `<div><div style="display:flex;gap:8px;margin-bottom:12px"><input class="field" id="nl" placeholder="新しいリスト（例：京都旅行）"><button class="btn" id="nlb">作る</button></div>
     ${S.lists.map((l) => `<button class="li ${l.id === S.listId ? "on" : ""}" data-li="${l.id}"><span class="sw" style="background:${esc(l.color)}"></span><b style="flex:1">${esc(l.title)}</b><span class="small muted">${l.list_items?.[0]?.count ?? 0}</span></button>`).join("") || '<p class="muted small">まだリストがありません。保存の詳細の「リストに入れる」からも作れます。</p>'}</div>`;
-  m.innerHTML = `<div class="head"><h1>リスト</h1></div><div class="cols">${side}<div id="lv"></div></div>`;
+  m.innerHTML = `<div class="head"><h1>リスト</h1></div><div class="cols">${side}<div id="lv"></div></div><div id="featured"></div>`;
+  if (!S.featured) fetch(`${SUPABASE_URL}/functions/v1/lists?featured=1`).then((r) => r.json()).then((j) => { S.featured = j.lists || []; drawFeatured(); }).catch(() => {});
+  else drawFeatured();
   $("nlb").onclick = async () => { const id = await createList($("nl").value); if (id) { S.listId = id; renderLists(); } };
   m.querySelectorAll("[data-li]").forEach((b) => b.onclick = () => { S.listId = b.dataset.li; renderLists(); });
   if (S.listId) renderListItems();
+}
+
+// みんなのリスト（運営が選んだ公開リスト）。開くと中身を見て、まるごととっとける
+function drawFeatured() {
+  const el = $("featured"); if (!el || !S.featured?.length) return;
+  el.innerHTML = `<h2 style="margin:28px 0 10px">みんなのリスト</h2><div class="grid">${S.featured.map((l) => `<a class="card" style="text-decoration:none;color:inherit;padding:14px" href="${LIST_WEB}${encodeURIComponent(l.code)}" target="_blank" rel="noopener"><div class="bold">${esc(l.title)}</div><div class="small muted">${esc(l.description || "")}</div><div class="small muted" style="margin-top:auto">${l.count}件${l.copies ? `・${l.copies}人がとっといた` : ""}${l.by ? `・${esc(l.by)}` : ""}</div></a>`).join("")}</div>`;
 }
 
 async function renderListItems() {
@@ -793,7 +1017,8 @@ async function renderShop() {
   const m = $("main");
   if (!S.shop) {
     m.innerHTML = '<p class="muted">読み込んでいます…</p>';
-    const { data } = await sb.from("shopping_items").select("id, name, quantity, aisle, done, save_id").order("created_at", { ascending: false });
+    const owner = await shopTarget();
+    const { data } = await sb.from("shopping_items").select("id, name, quantity, aisle, done, save_id").eq("profile_id", owner).order("created_at", { ascending: false });
     S.shop = data ?? [];
     if (S.view !== "shop") return;
   }
@@ -801,10 +1026,18 @@ async function renderShop() {
   for (const it of S.shop.filter((x) => !x.done)) (groups[it.aisle || "未分類"] ??= []).push(it);
   const done = S.shop.filter((x) => x.done);
   const row = (it) => `<label class="shop ${it.done ? "done" : ""}"><input type="checkbox" data-sh="${it.id}" ${it.done ? "checked" : ""}><span style="flex:1">${esc(it.name)}${it.quantity ? ` <span class="muted small">${esc(it.quantity)}</span>` : ""}</span></label>`;
-  m.innerHTML = `<div class="head"><h1>買い物リスト</h1><div class="spacer"></div><button class="btn out sm" id="aisle">売り場ごとに分ける</button>${done.length ? `<button class="btn out sm" id="clr">買った物を消す（${done.length}）</button>` : ""}</div>
+  m.innerHTML = `<div class="head"><h1>買い物リスト</h1><div class="spacer"></div><button class="btn out sm" id="shareShop">家族と共有</button><button class="btn out sm" id="aisle">売り場ごとに分ける</button>${done.length ? `<button class="btn out sm" id="clr">買った物を消す（${done.length}）</button>` : ""}</div>
     <div class="box" style="max-width:640px"><form id="addShop" style="display:flex;gap:8px;margin-bottom:6px"><input class="field" id="si" placeholder="買う物を足す（例：牛乳）"><button class="btn">足す</button></form>
     ${S.shop.length ? Object.entries(groups).map(([a, xs]) => `<div class="aisle">${esc(a)}</div>${xs.map(row).join("")}`).join("") + (done.length ? `<div class="aisle">買った</div>${done.map(row).join("")}` : "") : '<p class="muted small">レシピの保存から「材料を買い物リストに入れる」で追加できます。</p>'}</div>`;
-  $("addShop").onsubmit = async (e) => { e.preventDefault(); const name = $("si").value.trim(); if (!name) return; const { data } = await sb.from("shopping_items").insert({ profile_id: S.me.profileId, name }).select("id, name, quantity, aisle, done, save_id").single(); if (data) S.shop.unshift(data); renderShop(); setTimeout(() => $("si").focus(), 0); };
+  $("addShop").onsubmit = async (e) => { e.preventDefault(); const name = $("si").value.trim(); if (!name) return; const owner = await shopTarget(); const { data } = await sb.from("shopping_items").insert({ profile_id: owner, name }).select("id, name, quantity, aisle, done, save_id").single(); if (data) S.shop.unshift(data); renderShop(); setTimeout(() => $("si").focus(), 0); };
+  $("shareShop").onclick = async () => {
+    try {
+      const r = await call("lists", { action: "shop_share" });
+      const url = SHOP_WEB + r.code;
+      await navigator.clipboard?.writeText(url).catch(() => {});
+      modal(`<h2>家族と共有</h2><p class="small muted" style="margin:0">このリンクを送ると、アプリがなくても同じ買い物リストを見て、チェック・追加ができます。（コピーしました）</p><div class="box" style="word-break:break-all"><b>${esc(url)}</b></div><div class="links" style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="https://line.me/R/msg/text/?${encodeURIComponent("買い物リスト（とっとく）\n" + url)}" target="_blank" rel="noopener">LINEで送る</a></div>`, () => {});
+    } catch (err) { toast(err.message); }
+  };
   m.querySelectorAll("[data-sh]").forEach((c) => c.onchange = async () => { const it = S.shop.find((x) => x.id === c.dataset.sh); it.done = c.checked; renderShop(); await sb.from("shopping_items").update({ done: it.done }).eq("id", it.id); });
   if ($("clr")) $("clr").onclick = async () => { await sb.from("shopping_items").delete().in("id", done.map((x) => x.id)); S.shop = S.shop.filter((x) => !x.done); renderShop(); };
   $("aisle").onclick = async () => {
@@ -887,12 +1120,22 @@ $("appBtn").onclick = () => isPhone ? openInApp() : modal(`<h2>スマホのア�
 $("menuBtn").onclick = () => modal(`<h2>設定</h2>
   ${S.me?.plan === "plus" ? `<div class="box"><div class="bold">とっとく＋をご利用中</div><div class="small muted">ありがとうございます。プランの変更はスマホのアプリからできます。</div></div>` : `<div class="box" style="border:2px solid var(--ink)"><div class="bold">とっとく＋（月300円・年3,000円）</div><ul class="small" style="margin:6px 0 8px;padding-left:18px;line-height:1.9"><li>今までの保存をまとめて取り込む（Instagram・TikTok・Googleマップ・Xのブックマーク）</li><li>動画の中の言葉まで読んで分ける</li><li>保存したレシピで1週間の献立と買い物リスト</li></ul><div class="small muted">登録はスマホのアプリから（App Storeの決済）。ブラウザ版にもそのまま反映されます。</div><div style="margin-top:8px"><button class="btn sm" id="plusGo">アプリで登録する</button></div></div>`}
   ${S.solo ? `<div class="box"><div class="bold">アプリとまとめる</div><div class="small muted">今はこのブラウザだけで使っています。アプリの「設定 → パソコンのブラウザで使う」で出る8文字のコードを入れると、ここの保存がアプリにまとまり、スマホでも見られます（ブラウザのデータを消しても無くなりません）。</div><div style="display:flex;gap:8px;margin-top:8px"><input id="joinCode" maxlength="9" placeholder="XXXX XXXX" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;letter-spacing:.1em"><button class="btn sm" id="joinGo">まとめる</button></div></div>` : ""}
+  <div class="box"><div class="bold">苦手なもの・アレルギー</div><div class="small muted">レシピの材料に入っていたら知らせて、献立・置き換えでも避けます。</div><input class="field" id="avoidIn" maxlength="200" placeholder="例：パクチー、えび、卵" value="${esc(S.avoid || "")}" style="margin-top:6px"></div>
+  <div class="box"><label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="shareAnon"><span><b>みんなの数に入れる</b><br><span class="small muted">「見つける」の「近くでみんながとっといている」に、あなたのお店を数として入れます（3人以上のお店だけ・だれかは出ません）。</span></span></label></div>
+  <div class="box"><div class="bold">取り込み</div><div class="links" style="margin-top:8px"><button class="btn out sm" id="impBtn">過去の保存をまとめて取り込む${plus() ? "" : "（＋）"}</button><button class="btn out sm" id="stBtn">ハンコ帳</button></div></div>
+  ${S.solo ? `<div class="box"><div class="bold">ほかのブラウザでも使う</div><div class="small muted">ここで出すコード（10分有効）を、ほかのパソコンのブラウザ版で「アプリを使っている方」の欄に入れると、同じ保存が見られます。</div><button class="btn out sm" id="otherCode" style="margin-top:8px">コードを出す</button><div id="otherOut" class="bold" style="margin-top:6px;letter-spacing:.15em"></div></div>` : ""}
   <div class="box"><div class="bold">書き出す</div><div class="links" style="margin-top:8px"><button class="btn out sm" id="csv">表にして書き出す（CSV）</button></div></div>
   <div class="box"><div class="bold">Notionに書き出す</div><div class="small muted" id="notionInfo">確認しています…</div><div class="links" style="margin-top:8px" id="notionBtns"></div></div>
   <div class="box small muted">ショートカット：ページで Ctrl+V（⌘V）するとリンクや画像をそのまま保存／ファイルをドラッグしても保存できます。</div>
   <button class="btn danger" id="out">このブラウザからログアウト</button>
   <p class="small muted" style="margin:0"><a href="../privacy.html" target="_blank">プライバシーポリシー</a>・<a href="../terms.html" target="_blank">利用規約</a></p>`, (root) => {
   root.querySelector("#csv").onclick = exportCsv;
+  root.querySelector("#avoidIn").onchange = async (e) => { S.avoid = e.target.value.trim(); await sb.from("profiles").update({ food_avoid: S.avoid || null }).eq("id", S.me.profileId); toast("保存しました"); };
+  sb.from("profiles").select("share_anonymous").eq("id", S.me.profileId).maybeSingle().then(({ data }) => { const c = root.querySelector("#shareAnon"); if (c) c.checked = data?.share_anonymous ?? true; });
+  root.querySelector("#shareAnon").onchange = async (e) => { await sb.from("profiles").update({ share_anonymous: e.target.checked }).eq("id", S.me.profileId); toast("保存しました"); };
+  root.querySelector("#impBtn").onclick = () => { closeModal(); plus() ? openImport() : plusGate("まとめて取り込み", PLUS_MERITS); };
+  root.querySelector("#stBtn").onclick = () => { closeModal(); openStamps(); };
+  root.querySelector("#otherCode")?.addEventListener("click", async () => { try { const r = await call("ingest", { action: "web_link_code" }); root.querySelector("#otherOut").textContent = r.code.slice(0, 4) + " " + r.code.slice(4); } catch (err) { toast(err.message); } });
   root.querySelector("#plusGo")?.addEventListener("click", () => { closeModal(); $("appBtn").click(); });
   root.querySelector("#joinGo")?.addEventListener("click", async () => {
     const code = root.querySelector("#joinCode").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
