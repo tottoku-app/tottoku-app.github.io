@@ -211,7 +211,7 @@ const PLATFORM = { instagram: "Instagram", tiktok: "TikTok", x: "X", youtube: "Y
 const SAVE_SELECT = "id, profile_id, platform, source_url, author, title, summary, categories, tags, is_pr, deadline, details, needs_review, memo, created_at, thumbnail_url, places(id, save_id, name, area, address, google_place_id, lat, lng, notes, needs_confirm, candidates, visited, opening_hours, price_range)";
 const LIST_COLORS = ["#C2410C", "#15803D", "#6D28D9", "#1D4ED8", "#B45309", "#BE185D", "#0F766E", "#1A1A1E"];
 
-const S = { me: null, saves: [], extra: {}, pending: [], view: "list", cat: "all", q: "", ai: null, lists: null, listId: null, shop: null, mapObj: null };
+const S = { me: null, saves: [], extra: {}, failed: [], pending: [], view: "list", cat: "all", q: "", ai: null, lists: null, listId: null, shop: null, mapObj: null };
 
 // ---------- 小物 ----------
 const $ = (id) => document.getElementById(id);
@@ -296,12 +296,13 @@ $("tabs").addEventListener("click", (e) => { const b = e.target.closest("button"
 
 async function load() {
   const since = new Date(Date.now() - 7 * 86400000).toISOString();
-  const [s, j] = await Promise.all([
+  const [s, j, f] = await Promise.all([
     sb.from("saves").select(SAVE_SELECT).eq("profile_id", S.me.profileId).order("created_at", { ascending: false }).limit(1000),
     sb.from("ingest_jobs").select("id, platform, input_url, status, error, created_at").in("status", ["queued", "processing", "needs_device"]).neq("source", "import").gte("created_at", since).order("created_at", { ascending: false }),
+    sb.from("ingest_jobs").select("id, platform, input_url, status, created_at").eq("status", "failed").neq("source", "import").gte("created_at", new Date(Date.now() - 3 * 86400000).toISOString()).order("created_at", { ascending: false }).limit(20),
   ]);
   if (s.error?.code === "PGRST301" || s.error?.status === 401) return showLogin("もう一度コードを入れてください");
-  S.saves = s.data ?? []; S.pending = j.data ?? [];
+  S.saves = s.data ?? []; S.pending = j.data ?? []; S.failed = f.data ?? [];
   render();
 }
 
@@ -345,6 +346,7 @@ function renderList() {
   const reviewN = count("review");
   const chips = `<div class="chips">${chip("all", "すべて")}${CATS.map((c) => chip(c, CAT[c].label)).join("")}${reviewN ? chip("review", "あとで分ける") : ""}</div>`;
   const pend = S.pending.length ? `<div class="pending">${S.pending.map((p) => `<div class="pend">${p.status === "needs_device" ? "📱" : '<span class="dot"></span>'}<span class="u">${esc(p.input_url || "画像")}</span><span>${p.status === "needs_device" ? "スマホのアプリを開くと読み取ります" : "読み取り中…"}</span></div>`).join("")}</div>` : "";
+  const fail = S.failed.length ? `<div class="ai" style="background:var(--warn);border-color:#F3DFB5"><div class="bold">読み取れなかった保存 ${S.failed.length}件</div><div class="small muted" style="margin-bottom:6px">投稿が消されたか非公開の可能性があります。スクショを保存すると画像から読み取れます。</div>${S.failed.slice(0, 5).map((j) => `<div class="pend" style="margin-top:6px"><span class="u">${esc(j.input_url || "画像")}</span>${j.input_url ? `<button class="btn sm" data-retry="${j.id}">もう一度</button>` : ""}<button class="btn out sm" data-dismiss="${j.id}">消す</button></div>`).join("")}</div>` : "";
   let ai = "";
   if (S.ai) {
     const byId = Object.fromEntries(S.saves.map((s) => [s.id, s]));
@@ -354,7 +356,7 @@ function renderList() {
   const xs = filtered();
   if (!S.saves.length) return chips + pend + `<div class="empty"><b>まだ保存がありません</b>右上の「＋ 保存」でリンクを貼るか、このページで Ctrl+V（⌘V）するとそのまま保存できます。<br>スマホのアプリや LINE で保存したものも、ここに並びます。</div>`;
   const cards = xs.map(cardHtml).join("");
-  return chips + pend + ai + (cards ? `<div class="grid">${cards}</div>` : `<div class="empty"><b>当てはまる保存がありません</b>${S.q ? "Enter で AI にも聞けます" : ""}</div>`);
+  return chips + pend + fail + ai + (cards ? `<div class="grid">${cards}</div>` : `<div class="empty"><b>当てはまる保存がありません</b>${S.q ? "Enter で AI にも聞けます" : ""}</div>`);
 }
 
 function cardHtml(s) {
@@ -369,7 +371,13 @@ function cardHtml(s) {
     <div class="m">${meta}</div></div></button>`;
 }
 
-$("main").addEventListener("click", (e) => {
+$("main").addEventListener("click", async (e) => {
+  const r = e.target.closest("[data-retry]"), d = e.target.closest("[data-dismiss]");
+  if (r || d) {
+    const j = S.failed.find((x) => x.id === (r || d).dataset.retry || x.id === (r || d).dataset.dismiss); if (!j) return;
+    if (r) { r.disabled = true; try { await call("ingest", { url: j.input_url, async: true }); toast("もう一度読み取っています…"); } catch (err) { toast(err.message); return load(); } }
+    await sb.from("ingest_jobs").delete().eq("id", j.id); return load();
+  }
   const c = e.target.closest("[data-cat]"); if (c) { S.cat = c.dataset.cat; render(); return; }
   const o = e.target.closest("[data-open]"); if (o) openSave(o.dataset.open);
 });
