@@ -81,7 +81,7 @@ main{max-width:1240px;margin:0 auto;padding:20px 20px 120px}
 .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;text-align:left;display:flex;flex-direction:column;transition:transform .08s,box-shadow .12s}
 .card:hover{box-shadow:0 6px 20px rgba(0,0,0,.07);transform:translateY(-1px)}
 .thumb{aspect-ratio:16/10;background:#EEEDE8;overflow:hidden;position:relative}
-.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block;position:relative;z-index:1}
 .thumb.none{aspect-ratio:auto;height:44px}
 .thumb.none .ph{font-size:15px;justify-content:flex-start;padding-left:14px}
 .thumb .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900}
@@ -460,9 +460,15 @@ function renderToday() {
       <div class="bold" style="font-size:20px;margin-bottom:6px">${S.firstRun ? "ようこそ。まずは1つ、とっといてみましょう" : "まずは1つ、とっといてみましょう"}</div>
       <p class="muted small" style="margin:0 0 14px">X・Instagram・TikTok・YouTube・お店やレシピのページのリンクを貼るだけ。AIが中身を読んで、行く・作る・買う・観る・知るに分けます。</p>
       <div style="display:flex;gap:8px;max-width:560px;margin:0 auto"><input id="firstUrl" placeholder="ここにリンクを貼る（https://…）" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit"><button class="btn" id="firstGo">とっとく</button></div>
-      <p class="small muted" style="margin:12px 0 0">このページのどこでも Ctrl+V（⌘V）で貼っても保存できます。画像・スクショはドラッグで。</p></div>`;
+      <p class="small muted" style="margin:12px 0 0">このページのどこでも Ctrl+V（⌘V）で貼っても保存できます。画像・スクショはドラッグで。</p>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px">${["行きたいお店の投稿", "作ってみたいレシピ動画", "気になるコスメ・服", "観たい映画・ドラマ", "役に立つ知識のポスト"].map((x) => `<span class="tag" style="background:#EEEDE8;color:#5F6068;font-weight:700;padding:4px 10px">${x}</span>`).join("")}</div></div>`;
   }
 
+  // 最近とっといたもの（保存したらすぐ、分けられた結果が見える）
+  if (!empty) {
+    const recent = S.saves.slice(0, 4);
+    h += `<div style="margin-bottom:12px"><div style="display:flex;align-items:center;margin:4px 2px 8px"><div class="bold" style="font-size:16px">最近とっといたもの</div><div class="spacer"></div><a class="small bold" href="#list" data-go="list">すべて見る（${S.saves.length}）</a></div><div class="grid">${recent.map(cardHtml).join("")}</div></div>`;
+  }
   const pend = S.pending.length, fail = S.failed.length;
   if (pend || fail) h += `<div class="box" style="margin-bottom:12px;cursor:pointer" data-go="list">${pend ? `<span class="dot"></span> ${pend}件を読み取り中…　` : ""}${fail ? `<b>${fail}件は読めませんでした</b>（一覧で直し方を見る）` : ""}</div>`;
 
@@ -490,6 +496,8 @@ function renderToday() {
     h += `<div class="box muted small" style="margin-bottom:12px">${now.getMonth() + 1}月は とっといた <b style="color:var(--ink)">${S.saves.filter((s) => inMonth(s.created_at)).length}件</b>・やった <b style="color:var(--ink)">${S.saves.filter((s) => inMonth(s.done_at)).length}件</b></div>`;
   }
 
+  // パソコンならではの近道（保存が少ないうちだけ）
+  if (!empty && S.saves.length < 5 && !isPhone) h += `<div class="box small" style="margin-bottom:12px"><b>パソコンで見ているページは、1クリックで</b><div class="muted">Chromeの拡張機能か、ブックマークの「とっとくに保存」を使うと、見ているページをそのまま保存できます。<a href="../#ext" target="_blank" rel="noopener">入れ方を見る</a></div></div>`;
   // アプリだと（3件以上とっといた人に、1日1回まで。閉じたら1週間出さない）
   const until = Number(localStorage.getItem(NUDGE) || 0);
   if (S.saves.length >= 3 && Date.now() > until) h += `<div class="box" style="margin-bottom:12px;border:2px solid var(--ink)"><div style="display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><div class="bold">スマホだと、もっと楽に</div><div class="small muted">投稿を見ながら「共有」→「とっとく」の2タップで保存。今いる場所の近くのお店や、予定の朝・期限の前日を知らせます。${S.solo ? "ここで保存したものも、アプリとつなぐとそのまま入ります。" : ""}</div></div><button class="btn out sm" id="nudgeX">閉じる</button></div><div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="nudgeGo">アプリを入れる</button></div></div>`;
@@ -558,7 +566,7 @@ function plusGate(what, merits) {
     <p class="small muted" style="margin:0">登録はスマホのアプリから（App Storeの決済）。登録すると、このブラウザ版でもすぐ使えます。</p>
     <div class="links" style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="${APP_STORE}" target="_blank" rel="noopener">アプリで登録する</a><a class="btn out" href="https://line.me/R/msg/text/?${encodeURIComponent("とっとく\n" + APP_STORE)}" target="_blank" rel="noopener">スマホにLINEで送る</a></div>`, () => {});
 }
-const PLUS_MERITS = ["今までの保存をまとめて取り込む（Instagram・TikTok・Googleマップ・Xのブックマーク）", "保存したレシピで1週間の献立と、まとめた買い物リスト", "動画の中の言葉まで読んで分ける", "保存の数は無制限"];
+const PLUS_MERITS = ["今までの保存をまとめて取り込む（Instagram・TikTok・Googleマップ・Xのブックマーク）", "保存したレシピで1週間の献立と、まとめた買い物リスト", "動画の中の言葉まで読んで分ける", "保存は月1,000件まで（無料は月100件）・AIに聞くのは1日300回まで"];
 
 // ---- 詳細のおまけ：似ている保存・材料の置き換え・苦手なもの・値下がり・運動 ----
 function detailExtras(s) {
@@ -1008,7 +1016,7 @@ async function renderListItems() {
       <span class="sw" style="background:${esc(l.color)};width:16px;height:16px"></span><b style="font-size:18px;flex:1">${esc(l.title)}</b>
       <button class="btn out sm" id="cp">共有リンクをコピー</button>${mine ? `<button class="btn danger sm" id="dl">リストを消す</button>` : ""}</div>
     ${items.length ? `<div class="grid">${items.map((it) => cardHtml(it.saves)).join("")}</div>` : '<div class="empty"><b>まだ何も入っていません</b>保存を開いて「リストに入れる」で追加できます。</div>'}`;
-  $("cp").onclick = async () => { await navigator.clipboard.writeText(share).catch(() => {}); toast("共有リンクをコピーしました"); };
+  $("cp").onclick = () => { navigator.clipboard?.writeText(share).then(() => toast("共有リンクをコピーしました"), () => toast("コピーできませんでした。リンクを選択してコピーしてください")); };
   if ($("dl")) $("dl").onclick = async () => { if (!confirm(`「${l.title}」を消しますか？（中の保存は消えません）`)) return; await sb.from("lists").delete().eq("id", l.id); S.lists = null; S.listId = null; renderLists(); };
 }
 
@@ -1034,8 +1042,10 @@ async function renderShop() {
     try {
       const r = await call("lists", { action: "shop_share" });
       const url = SHOP_WEB + r.code;
-      await navigator.clipboard?.writeText(url).catch(() => {});
-      modal(`<h2>家族と共有</h2><p class="small muted" style="margin:0">このリンクを送ると、アプリがなくても同じ買い物リストを見て、チェック・追加ができます。（コピーしました）</p><div class="box" style="word-break:break-all"><b>${esc(url)}</b></div><div class="links" style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="https://line.me/R/msg/text/?${encodeURIComponent("買い物リスト（とっとく）\n" + url)}" target="_blank" rel="noopener">LINEで送る</a></div>`, () => {});
+      // 先に見せる（コピーはボタンで。ブラウザによってはコピーの確認で止まるため待たない）
+      modal(`<h2>家族と共有</h2><p class="small muted" style="margin:0">このリンクを送ると、アプリがなくても同じ買い物リストを見て、チェック・追加ができます。</p><div class="box" style="word-break:break-all"><b>${esc(url)}</b></div><div class="links" style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="https://line.me/R/msg/text/?${encodeURIComponent("買い物リスト（とっとく）\n" + url)}" target="_blank" rel="noopener">LINEで送る</a><button class="btn out" id="copyShop">リンクをコピー</button></div>`, (root) => {
+        root.querySelector("#copyShop").onclick = () => { navigator.clipboard?.writeText(url).then(() => toast("コピーしました"), () => toast("コピーできませんでした。リンクを長押し・選択してコピーしてください")); };
+      });
     } catch (err) { toast(err.message); }
   };
   m.querySelectorAll("[data-sh]").forEach((c) => c.onchange = async () => { const it = S.shop.find((x) => x.id === c.dataset.sh); it.done = c.checked; renderShop(); await sb.from("shopping_items").update({ done: it.done }).eq("id", it.id); });
@@ -1102,6 +1112,7 @@ async function notionSync() {
 // パソコン：アプリでできることと、スマホに送る方法を出す
 const APP_STORE = "https://apps.apple.com/jp/app/id6839922621";
 const isPhone = /iPhone|iPad|Android/i.test(navigator.userAgent);
+if (!isPhone) $("appBtn").textContent = "スマホアプリ";
 function openInApp() {
   const id = S.openId;
   const deep = id ? `tottoku://save/${id}` : "tottoku://";
@@ -1118,7 +1129,7 @@ $("appBtn").onclick = () => isPhone ? openInApp() : modal(`<h2>スマホのア�
   <p class="small muted" style="margin:0">すでに入っている方は、スマホのアプリを開けば、ここで保存したものも入っています。</p>`, () => {});
 
 $("menuBtn").onclick = () => modal(`<h2>設定</h2>
-  ${S.me?.plan === "plus" ? `<div class="box"><div class="bold">とっとく＋をご利用中</div><div class="small muted">ありがとうございます。プランの変更はスマホのアプリからできます。</div></div>` : `<div class="box" style="border:2px solid var(--ink)"><div class="bold">とっとく＋（月300円・年3,000円）</div><ul class="small" style="margin:6px 0 8px;padding-left:18px;line-height:1.9"><li>今までの保存をまとめて取り込む（Instagram・TikTok・Googleマップ・Xのブックマーク）</li><li>動画の中の言葉まで読んで分ける</li><li>保存したレシピで1週間の献立と買い物リスト</li></ul><div class="small muted">登録はスマホのアプリから（App Storeの決済）。ブラウザ版にもそのまま反映されます。</div><div style="margin-top:8px"><button class="btn sm" id="plusGo">アプリで登録する</button></div></div>`}
+  ${S.me?.plan === "plus" ? `<div class="box"><div class="bold">とっとく＋をご利用中</div><div class="small muted">ありがとうございます。プランの変更はスマホのアプリからできます。</div></div>` : `<div class="box" style="border:2px solid var(--ink)"><div class="bold">とっとく＋（月300円・年3,000円）</div><ul class="small" style="margin:6px 0 8px;padding-left:18px;line-height:1.9"><li>今までの保存をまとめて取り込む（Instagram・TikTok・Googleマップ・Xのブックマーク）</li><li>動画の中の言葉まで読んで分ける</li><li>保存したレシピで1週間の献立と買い物リスト</li><li>保存は月1,000件まで（無料は月100件）・AIに聞くのは1日300回まで</li></ul><div class="small muted">登録はスマホのアプリから（App Storeの決済）。ブラウザ版にもそのまま反映されます。</div><div style="margin-top:8px"><button class="btn sm" id="plusGo">アプリで登録する</button></div></div>`}
   ${S.solo ? `<div class="box"><div class="bold">アプリとまとめる</div><div class="small muted">今はこのブラウザだけで使っています。アプリの「設定 → パソコンのブラウザで使う」で出る8文字のコードを入れると、ここの保存がアプリにまとまり、スマホでも見られます（ブラウザのデータを消しても無くなりません）。</div><div style="display:flex;gap:8px;margin-top:8px"><input id="joinCode" maxlength="9" placeholder="XXXX XXXX" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;letter-spacing:.1em"><button class="btn sm" id="joinGo">まとめる</button></div></div>` : ""}
   <div class="box"><div class="bold">苦手なもの・アレルギー</div><div class="small muted">レシピの材料に入っていたら知らせて、献立・置き換えでも避けます。</div><input class="field" id="avoidIn" maxlength="200" placeholder="例：パクチー、えび、卵" value="${esc(S.avoid || "")}" style="margin-top:6px"></div>
   <div class="box"><label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="shareAnon"><span><b>みんなの数に入れる</b><br><span class="small muted">「見つける」の「近くでみんながとっといている」に、あなたのお店を数として入れます（3人以上のお店だけ・だれかは出ません）。</span></span></label></div>
