@@ -90,6 +90,7 @@ main{max-width:1240px;margin:0 auto;padding:20px 20px 120px}
 .card .s{font-size:13px;color:var(--sub);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card .m{font-size:12px;color:var(--sub);margin-top:auto;padding-top:4px;display:flex;gap:8px;flex-wrap:wrap}
 .ai{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:16px}
+#askOut .row,#dsc .row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);text-align:left;width:100%}
 .ai .row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);text-align:left;width:100%}
 .ai .row:first-of-type{border-top:0}
 .empty{text-align:center;padding:60px 20px;color:var(--sub)}
@@ -148,7 +149,11 @@ ol.steps2 li{margin:4px 0}
   <div class="login-card">
     <img src="../icon.png" alt="">
     <h1>とっとく ブラウザ版</h1>
-    <p class="muted small" style="margin:0">スマホのアプリと同じ保存を、パソコンで見られます</p>
+    <p style="margin:4px 0 2px;font-weight:900;font-size:18px">SNSの「あとで」を、ほんとにやる。</p>
+    <p class="muted small" style="margin:0 0 10px">リンクを貼るだけで、AIが中身を読んで「行く・作る・買う・観る・知る」に分けます。お店は地図に、材料は買い物リストに。</p>
+    <button class="btn" id="soloBtn" style="width:100%;max-width:280px;padding:14px;margin-top:6px">登録なしで、はじめる</button>
+    <p class="small muted" style="margin:6px 0 18px">メールもパスワードもいりません。あとでスマホのアプリとまとめられます。</p>
+    <div class="small bold" style="margin-bottom:4px">スマホのアプリを使っている方</div>
     <form id="codeForm">
       <div class="code"><input id="codeIn" maxlength="9" autocomplete="one-time-code" placeholder="XXXX XXXX" aria-label="8文字のコード"></div>
       <button class="btn" id="codeBtn" style="width:100%;max-width:280px;padding:13px">つなぐ</button>
@@ -183,7 +188,8 @@ ol.steps2 li{margin:4px 0}
         <input id="q" type="search" placeholder="探す（Enter で AI にも聞く）">
       </div>
       <nav class="tabs" id="tabs">
-        <button data-v="list" class="on">一覧</button>
+        <button data-v="today" class="on">今日</button>
+        <button data-v="list">一覧</button>
         <button data-v="map">地図</button>
         <button data-v="plans">予定</button>
         <button data-v="lists">リスト</button>
@@ -221,7 +227,7 @@ const PLATFORM = { instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook
 const SAVE_SELECT = "id, profile_id, platform, source_url, author, title, summary, categories, tags, is_pr, deadline, details, needs_review, memo, created_at, thumbnail_url, plan_date, plan_slot, done_at, places(id, save_id, name, area, address, google_place_id, lat, lng, notes, needs_confirm, candidates, visited, opening_hours, price_range, google_rating, google_rating_count, maps_uri)";
 const LIST_COLORS = ["#C2410C", "#15803D", "#6D28D9", "#1D4ED8", "#B45309", "#BE185D", "#0F766E", "#1A1A1E"];
 
-const S = { me: null, saves: [], extra: {}, failed: [], pending: [], view: "list", cat: "all", q: "", ai: null, lists: null, listId: null, shop: null, mapObj: null };
+const S = { me: null, saves: [], extra: {}, failed: [], pending: [], view: "today", cat: "all", q: "", ai: null, lists: null, listId: null, shop: null, mapObj: null };
 
 // ---------- 小物 ----------
 const $ = (id) => document.getElementById(id);
@@ -260,11 +266,13 @@ function todayHours(h, now = new Date()) { const l = h?.weekdayDescriptions; if 
 // ---------- つなぐ ----------
 async function boot() {
   const { data } = await sb.auth.getSession();
-  if (!data.session || localStorage.getItem(LINKED) !== "1") return showLogin();
+  const mode = localStorage.getItem(LINKED); // "1"＝アプリとつながっている / "solo"＝ブラウザだけで使っている
+  if (!data.session || (mode !== "1" && mode !== "solo")) return showLogin();
   try {
     S.me = await call("ingest", { action: "me" });
-    if (!S.me.web) { await sb.auth.signOut(); localStorage.removeItem(LINKED); return showLogin(); }
-  } catch { return showLogin("つながりが切れました。もう一度コードを入れてください"); }
+    if (mode === "1" && !S.me.web) { await sb.auth.signOut(); localStorage.removeItem(LINKED); return showLogin(); }
+    S.solo = !S.me.web;
+  } catch { return showLogin("つながりが切れました。もう一度はじめてください"); }
   showApp();
 }
 
@@ -272,6 +280,19 @@ function showLogin(msg = "") {
   $("app").classList.add("hide"); $("login").classList.remove("hide");
   $("codeErr").textContent = msg; setTimeout(() => $("codeIn").focus(), 50);
 }
+
+// ブラウザだけではじめる（名前のないアカウント。あとでアプリのコードを入れると、アプリの保存とまとまる）
+$("soloBtn").onclick = async () => {
+  $("soloBtn").disabled = true;
+  try {
+    const { data } = await sb.auth.getSession();
+    if (!data.session) { const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error; }
+    localStorage.setItem(LINKED, "solo");
+    S.firstRun = true;
+    await boot();
+  } catch (err) { $("codeErr").textContent = err.message || "はじめられませんでした"; }
+  finally { $("soloBtn").disabled = false; }
+};
 
 $("codeIn").addEventListener("input", (e) => {
   const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -297,7 +318,7 @@ $("codeForm").addEventListener("submit", async (e) => {
 function showApp() {
   $("login").classList.add("hide"); $("app").classList.remove("hide");
   const v = location.hash.replace("#", "");
-  if (["list", "map", "plans", "lists", "shop"].includes(v)) S.view = v;
+  if (["today", "list", "map", "plans", "lists", "shop"].includes(v)) S.view = v;
   // 拡張機能・ブックマークから「このページを保存」で来たとき
   const sv = new URLSearchParams(location.search).get("save");
   if (sv) { history.replaceState(null, "", location.pathname + location.hash); saveUrls(sv); }
@@ -334,7 +355,8 @@ function subscribe() {
 
 function render() {
   const m = $("main");
-  if (S.view === "list") m.innerHTML = renderList();
+  if (S.view === "today") m.innerHTML = renderToday();
+  else if (S.view === "list") m.innerHTML = renderList();
   else if (S.view === "map") { m.innerHTML = `<div class="head"><h1>地図</h1><span class="muted small" id="mapInfo"></span><div class="spacer"></div><label class="small"><input type="checkbox" id="openOnly"> 今あいている店だけ</label></div><div id="map"></div>`; drawMap(); }
   else if (S.view === "plans") renderPlans();
   else if (S.view === "lists") renderLists();
@@ -408,6 +430,115 @@ $("q").addEventListener("keydown", async (e) => {
   catch { S.ai = { q, results: [] }; }
   render();
 });
+
+// ---------- 今日（ブラウザ版のホーム）----------
+// 開くたびに「今日やれること」を集める。アプリにしかないものは、その場で「アプリだと」をひとことだけ
+const NUDGE = "tottoku.web.nudge";
+function renderToday() {
+  const today = ymd(new Date());
+  const tomorrow = ymd(new Date(Date.now() + 86400000));
+  const empty = !S.saves.length;
+  const sec = (title, body, more = "") => `<div class="box" style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div class="bold" style="font-size:16px">${title}</div><div class="spacer"></div>${more}</div>${body}</div>`;
+  const row = (s, sub, btn = "") => `<div style="display:flex;align-items:center;gap:10px;padding:6px 0"><div style="flex:1;min-width:0;cursor:pointer" data-open="${s.id}"><div class="bold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.title)}</div><div class="small muted">${esc(sub)}</div></div>${btn}</div>`;
+  const now = new Date();
+  const d = `${now.getMonth() + 1}月${now.getDate()}日（${"日月火水木金土"[now.getDay()]}）`;
+  let h = `<div class="head"><div><div class="small muted bold">${d}</div><h1 style="margin:0">今日の、とっとく。</h1></div></div>`;
+
+  // AIに聞く（選んでもらう・保存について質問）
+  if (!empty) h += `<div class="box" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input id="askIn" placeholder="AIに聞く（例：雨の日曜どこ行く？／あの店のハラミはいくら？）" style="flex:1;min-width:220px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit">
+    <button class="btn sm" id="askPick">選んでもらう</button><button class="btn out sm" id="askQ">保存について聞く</button>
+    <div id="askOut" style="flex-basis:100%"></div></div>`;
+
+  if (empty) {
+    h += `<div class="box" style="margin-bottom:12px;text-align:center;padding:28px 20px">
+      <div class="bold" style="font-size:20px;margin-bottom:6px">${S.firstRun ? "ようこそ。まずは1つ、とっといてみましょう" : "まずは1つ、とっといてみましょう"}</div>
+      <p class="muted small" style="margin:0 0 14px">X・Instagram・TikTok・YouTube・お店やレシピのページのリンクを貼るだけ。AIが中身を読んで、行く・作る・買う・観る・知るに分けます。</p>
+      <div style="display:flex;gap:8px;max-width:560px;margin:0 auto"><input id="firstUrl" placeholder="ここにリンクを貼る（https://…）" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:12px;font:inherit"><button class="btn" id="firstGo">とっとく</button></div>
+      <p class="small muted" style="margin:12px 0 0">このページのどこでも Ctrl+V（⌘V）で貼っても保存できます。画像・スクショはドラッグで。</p></div>`;
+  }
+
+  const pend = S.pending.length, fail = S.failed.length;
+  if (pend || fail) h += `<div class="box" style="margin-bottom:12px;cursor:pointer" data-go="list">${pend ? `<span class="dot"></span> ${pend}件を読み取り中…　` : ""}${fail ? `<b>${fail}件は読めませんでした</b>（一覧で直し方を見る）` : ""}</div>`;
+
+  const plans = S.saves.filter((s) => s.plan_date && !s.done_at && s.plan_date <= tomorrow).sort((a, b) => (a.plan_date < b.plan_date ? -1 : 1));
+  if (plans.length) h += sec("今日・明日の予定", plans.slice(0, 5).map((s) => row(s, `${s.plan_date < today ? "過ぎた予定 " : ""}${dayLabel(s.plan_date)}${s.plan_slot ? " " + SLOT[s.plan_slot] : ""}`, `<button class="btn out sm" data-done="${s.id}">${doneVerb(s)}</button>`)).join(""), `<a class="small bold" href="#plans" data-go="plans">予定を見る</a>`);
+
+  // 今あいている（行ってないお店だけ）
+  const open = [];
+  for (const s of S.saves) { if (s.done_at) continue; for (const p of s.places || []) if (!p.visited && isOpenNow(p.opening_hours) === true) open.push({ s, p }); }
+  if (open.length) h += sec(`とっといたお店で、今あいている（${open.length}）`, open.slice(0, 4).map(({ s, p }) => row(s, `${p.name}・${todayHours(p.opening_hours) || ""}`)).join(""), `<a class="small bold" href="#map" data-go="map">地図で見る</a>`);
+
+  const soon = S.saves.filter((s) => s.deadline && !s.done_at && s.deadline >= today && s.deadline <= ymd(new Date(Date.now() + 7 * 86400000)));
+  if (soon.length) h += sec("期限が近い", soon.slice(0, 4).map((s) => row(s, `${s.deadline.slice(5).replace("-", "/")}まで`)).join(""));
+
+  // わすれていませんか？（1か月以上前・まだやっていない。日替わり）
+  const old = S.saves.filter((s) => !s.done_at && !s.plan_date && Date.now() - new Date(s.created_at).getTime() > 30 * 86400000);
+  if (old.length) { const s = old[Number(today.replace(/-/g, "")) % old.length]; h += sec("わすれていませんか？", row(s, `${Math.floor((Date.now() - new Date(s.created_at).getTime()) / 86400000)}日前にとっといた`)); }
+
+  if (!empty) h += `<div class="box" style="margin-bottom:12px;cursor:pointer;display:flex;align-items:center;gap:10px" id="discoverBtn"><div style="flex:1"><div class="bold" style="font-size:16px">見つける</div><div class="small muted">近くでみんながとっといているお店・あなたの好みに近いお店</div></div><span class="bold">›</span></div>`;
+
+  // 月の記録
+  if (!empty) {
+    const inMonth = (iso) => iso && new Date(iso).getMonth() === now.getMonth() && new Date(iso).getFullYear() === now.getFullYear();
+    h += `<div class="box muted small" style="margin-bottom:12px">${now.getMonth() + 1}月は とっといた <b style="color:var(--ink)">${S.saves.filter((s) => inMonth(s.created_at)).length}件</b>・やった <b style="color:var(--ink)">${S.saves.filter((s) => inMonth(s.done_at)).length}件</b></div>`;
+  }
+
+  // アプリだと（3件以上とっといた人に、1日1回まで。閉じたら1週間出さない）
+  const until = Number(localStorage.getItem(NUDGE) || 0);
+  if (S.saves.length >= 3 && Date.now() > until) h += `<div class="box" style="margin-bottom:12px;border:2px solid var(--ink)"><div style="display:flex;gap:8px;align-items:flex-start"><div style="flex:1"><div class="bold">スマホだと、もっと楽に</div><div class="small muted">投稿を見ながら「共有」→「とっとく」の2タップで保存。今いる場所の近くのお店や、予定の朝・期限の前日を知らせます。${S.solo ? "ここで保存したものも、アプリとつなぐとそのまま入ります。" : ""}</div></div><button class="btn out sm" id="nudgeX">閉じる</button></div><div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="nudgeGo">アプリを入れる</button></div></div>`;
+  return h;
+}
+
+$("main").addEventListener("click", async (e) => {
+  const g = e.target.closest("[data-go]"); if (g) { e.preventDefault(); S.view = g.dataset.go; history.replaceState(null, "", "#" + S.view); setTabs(); render(); return; }
+  const dn = e.target.closest("[data-done]"); if (dn && S.view === "today") { const s = S.saves.find((x) => x.id === dn.dataset.done); if (s) { await toggleDone(s); render(); } return; }
+  if (e.target.id === "firstGo") { const v = $("firstUrl").value.trim(); if (v) { const n = await saveUrls(v); if (n) $("firstUrl").value = ""; } return; }
+  if (e.target.id === "discoverBtn" || e.target.closest("#discoverBtn")) return openDiscover();
+  if (e.target.id === "nudgeX") { localStorage.setItem(NUDGE, String(Date.now() + 7 * 86400000)); render(); return; }
+  if (e.target.id === "nudgeGo") return $("appBtn").click();
+  if (e.target.id === "askPick" || e.target.id === "askQ") return askAi(e.target.id === "askQ");
+});
+$("main").addEventListener("keydown", (e) => { if (e.target.id === "firstUrl" && e.key === "Enter") $("firstGo").click(); if (e.target.id === "askIn" && e.key === "Enter") askAi(false); });
+
+// 現在地（使っていいと言われたときだけ）
+function here() {
+  return new Promise((ok) => {
+    if (!navigator.geolocation) return ok(null);
+    navigator.geolocation.getCurrentPosition((p) => ok({ lat: p.coords.latitude, lng: p.coords.longitude }), () => ok(null), { timeout: 6000, maximumAge: 600000 });
+  });
+}
+
+async function askAi(question) {
+  const q = $("askIn").value.trim(); if (!q) return $("askIn").focus();
+  const out = $("askOut"); out.innerHTML = `<p class="small muted" style="margin:8px 0 0">AIが考えています…</p>`;
+  try {
+    if (question) {
+      const r = await call("assist", { action: "ask", question: q });
+      out.innerHTML = `<p style="margin:10px 0 4px;line-height:1.8">${esc(r.answer)}</p>${(r.refs || []).map((x) => `<a href="#" class="small bold" data-open="${x.id}" style="margin-right:10px">${esc(x.title)}</a>`).join("")}`;
+    } else {
+      const pos = await here();
+      const r = await call("assist", { action: "decide", request: q, lat: pos?.lat, lng: pos?.lng });
+      const byId = Object.fromEntries(S.saves.map((s) => [s.id, s]));
+      out.innerHTML = `<p class="bold" style="margin:10px 0 4px">${esc(r.message)}</p>${(r.picks || []).filter((p) => byId[p.id]).map((p) => `<button class="row" data-open="${p.id}"><div style="flex:1"><div class="bold">${esc(byId[p.id].places?.[0]?.name || byId[p.id].title)}</div><div class="small muted">${esc(p.reason)}</div></div></button>`).join("") || `<p class="small muted">合う保存が見つかりませんでした</p>`}`;
+    }
+  } catch (err) { out.innerHTML = `<p class="small" style="color:var(--danger)">${esc(err.message)}</p>`; }
+}
+
+// 見つける（アプリと同じ中身）
+async function openDiscover() {
+  modal(`<h2>見つける</h2><p class="small muted" style="margin:0">まだとっといていない、行きたくなりそうなお店。「とっとく」を押すと地図と今日に入ります。</p><div id="dsc"><p class="small muted">あなたの保存から、好みを読んでいます…</p></div>`, () => {});
+  const pos = await here();
+  try {
+    const r = await call("assist", { action: "discover", lat: pos?.lat, lng: pos?.lng });
+    const url = (x) => x.maps_uri || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.name)}&query_place_id=${x.google_place_id}`;
+    const block = (t, note, xs) => xs.length ? `<div class="box"><div class="bold">${t}</div><div class="small muted" style="margin-bottom:6px">${note}</div>${xs.map((x) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><a href="${esc(url(x))}" target="_blank" rel="noopener" style="flex:1;min-width:0;text-decoration:none;color:inherit"><div class="bold">${esc(x.name)}</div><div class="small muted">${[x.rating ? `★${Number(x.rating).toFixed(1)}` : "", x.because].filter(Boolean).map(esc).join("・")}</div></a><button class="btn sm" data-keep="${esc(url(x))}">とっとく</button></div>`).join("")}</div>` : "";
+    const html = block("近くで、みんながとっといている", "3人以上がとっといたお店だけ。だれがとっといたかは出ません", r.popular || []) + block("あなたと好みが近い人に人気", "あなたと同じお店をとっといた人たちが、ほかにとっといているお店", r.alsoSaved || []) + block((r.genres || []).length ? `よくとっとく「${r.genres.join("・")}」の近くのお店` : "あなたの好みに近いお店", "Googleマップで評判のいいお店から（★3.6以上）", r.taste || []);
+    const el = document.getElementById("dsc"); if (!el) return;
+    el.innerHTML = html || `<div class="box small muted">まだ見つけられませんでした。お店を何件かとっとくと好みが分かって出せるようになります。${pos ? "" : "位置を許可すると、近くのお店も探せます。"}</div>`;
+    el.querySelectorAll("[data-keep]").forEach((b) => (b.onclick = async () => { b.disabled = true; b.textContent = "とっといた"; try { await call("ingest", { url: b.dataset.keep, async: true }); } catch (err) { toast(err.message); } }));
+  } catch (err) { const el = document.getElementById("dsc"); if (el) el.innerHTML = `<p class="small" style="color:var(--danger)">${esc(err.message)}</p>`; }
+}
 
 // ---------- 詳細 ----------
 function openSave(id) {
@@ -754,13 +885,21 @@ $("appBtn").onclick = () => isPhone ? openInApp() : modal(`<h2>スマホのア�
   <p class="small muted" style="margin:0">すでに入っている方は、スマホのアプリを開けば、ここで保存したものも入っています。</p>`, () => {});
 
 $("menuBtn").onclick = () => modal(`<h2>設定</h2>
-  <div class="box"><div class="bold">${S.me?.plan === "plus" ? "とっとく＋をご利用中" : "無料プラン"}</div><div class="small muted">プランの変更はスマホのアプリからできます。</div></div>
+  ${S.me?.plan === "plus" ? `<div class="box"><div class="bold">とっとく＋をご利用中</div><div class="small muted">ありがとうございます。プランの変更はスマホのアプリからできます。</div></div>` : `<div class="box" style="border:2px solid var(--ink)"><div class="bold">とっとく＋（月300円・年3,000円）</div><ul class="small" style="margin:6px 0 8px;padding-left:18px;line-height:1.9"><li>今までの保存をまとめて取り込む（Instagram・TikTok・Googleマップ・Xのブックマーク）</li><li>動画の中の言葉まで読んで分ける</li><li>保存したレシピで1週間の献立と買い物リスト</li></ul><div class="small muted">登録はスマホのアプリから（App Storeの決済）。ブラウザ版にもそのまま反映されます。</div><div style="margin-top:8px"><button class="btn sm" id="plusGo">アプリで登録する</button></div></div>`}
+  ${S.solo ? `<div class="box"><div class="bold">アプリとまとめる</div><div class="small muted">今はこのブラウザだけで使っています。アプリの「設定 → パソコンのブラウザで使う」で出る8文字のコードを入れると、ここの保存がアプリにまとまり、スマホでも見られます（ブラウザのデータを消しても無くなりません）。</div><div style="display:flex;gap:8px;margin-top:8px"><input id="joinCode" maxlength="9" placeholder="XXXX XXXX" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;letter-spacing:.1em"><button class="btn sm" id="joinGo">まとめる</button></div></div>` : ""}
   <div class="box"><div class="bold">書き出す</div><div class="links" style="margin-top:8px"><button class="btn out sm" id="csv">表にして書き出す（CSV）</button></div></div>
   <div class="box"><div class="bold">Notionに書き出す</div><div class="small muted" id="notionInfo">確認しています…</div><div class="links" style="margin-top:8px" id="notionBtns"></div></div>
   <div class="box small muted">ショートカット：ページで Ctrl+V（⌘V）するとリンクや画像をそのまま保存／ファイルをドラッグしても保存できます。</div>
   <button class="btn danger" id="out">このブラウザからログアウト</button>
   <p class="small muted" style="margin:0"><a href="../privacy.html" target="_blank">プライバシーポリシー</a>・<a href="../terms.html" target="_blank">利用規約</a></p>`, (root) => {
   root.querySelector("#csv").onclick = exportCsv;
+  root.querySelector("#plusGo")?.addEventListener("click", () => { closeModal(); $("appBtn").click(); });
+  root.querySelector("#joinGo")?.addEventListener("click", async () => {
+    const code = root.querySelector("#joinCode").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (code.length !== 8) return toast("8文字のコードを入れてください");
+    try { await call("ingest", { action: "web_link", code }); localStorage.setItem(LINKED, "1"); closeModal(); toast("アプリとまとめました"); await boot(); }
+    catch (err) { toast(err.message); }
+  });
   call("notion", { action: "status" }).then((st) => {
     root.querySelector("#notionInfo").textContent = st.connected ? `${st.workspace || "Notion"}とつながっています` : "保存をNotionのデータベースに書き出せます（分類・場所・予定・やったかどうか）";
     root.querySelector("#notionBtns").innerHTML = st.connected ? `<button class="btn sm" id="nSync">今すぐ書き出す</button><button class="btn out sm" id="nOff">つながりを切る</button>` : `<button class="btn out sm" id="nOn">Notionとつなぐ</button>`;
