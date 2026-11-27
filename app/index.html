@@ -177,6 +177,7 @@ ol.steps2 li{margin:4px 0}
       <nav class="tabs" id="tabs">
         <button data-v="list" class="on">一覧</button>
         <button data-v="map">地図</button>
+        <button data-v="plans">予定</button>
         <button data-v="lists">リスト</button>
         <button data-v="shop">買い物</button>
       </nav>
@@ -203,12 +204,12 @@ const CAT = {
   go:    { label: "行く", sub: "お店・スポット", bg: "#FFEDD5", fg: "#9A3412", accent: "#C2410C" },
   cook:  { label: "作る", sub: "レシピ", bg: "#DCFCE7", fg: "#166534", accent: "#15803D" },
   buy:   { label: "買う", sub: "コスメ・物", bg: "#EDE9FE", fg: "#5B21B6", accent: "#6D28D9" },
-  watch: { label: "観る", sub: "映画・ドラマ・本", bg: "#DBEAFE", fg: "#1E40AF", accent: "#1D4ED8" },
+  watch: { label: "観る", sub: "作品・推し・おもしろ", bg: "#DBEAFE", fg: "#1E40AF", accent: "#1D4ED8" },
   learn: { label: "知る", sub: "知識・ワザ", bg: "#FEF3C7", fg: "#92400E", accent: "#B45309" },
 };
 const CATS = Object.keys(CAT);
-const PLATFORM = { instagram: "Instagram", tiktok: "TikTok", x: "X", youtube: "YouTube", web: "Web", screenshot: "スクショ", photo: "写真", voice: "音声" };
-const SAVE_SELECT = "id, profile_id, platform, source_url, author, title, summary, categories, tags, is_pr, deadline, details, needs_review, memo, created_at, thumbnail_url, places(id, save_id, name, area, address, google_place_id, lat, lng, notes, needs_confirm, candidates, visited, opening_hours, price_range)";
+const PLATFORM = { instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", x: "X", youtube: "YouTube", web: "Web", screenshot: "スクショ", photo: "写真", voice: "音声" };
+const SAVE_SELECT = "id, profile_id, platform, source_url, author, title, summary, categories, tags, is_pr, deadline, details, needs_review, memo, created_at, thumbnail_url, plan_date, plan_slot, done_at, places(id, save_id, name, area, address, google_place_id, lat, lng, notes, needs_confirm, candidates, visited, opening_hours, price_range, google_rating, google_rating_count, maps_uri)";
 const LIST_COLORS = ["#C2410C", "#15803D", "#6D28D9", "#1D4ED8", "#B45309", "#BE185D", "#0F766E", "#1A1A1E"];
 
 const S = { me: null, saves: [], extra: {}, failed: [], pending: [], view: "list", cat: "all", q: "", ai: null, lists: null, listId: null, shop: null, mapObj: null };
@@ -287,7 +288,13 @@ $("codeForm").addEventListener("submit", async (e) => {
 function showApp() {
   $("login").classList.add("hide"); $("app").classList.remove("hide");
   const v = location.hash.replace("#", "");
-  if (["list", "map", "lists", "shop"].includes(v)) S.view = v;
+  if (["list", "map", "plans", "lists", "shop"].includes(v)) S.view = v;
+  // 拡張機能・ブックマークから「このページを保存」で来たとき
+  const sv = new URLSearchParams(location.search).get("save");
+  if (sv) { history.replaceState(null, "", location.pathname + location.hash); saveUrls(sv); }
+  // Notion から戻ってきたとき
+  const nq = new URLSearchParams(location.search).get("notion");
+  if (nq) { history.replaceState(null, "", location.pathname + location.hash); if (nq === "ok") { toast("Notionとつながりました。書き出しています…"); notionSync(); } else toast("Notionとつなげませんでした"); }
   setTabs(); load(); subscribe();
 }
 
@@ -320,6 +327,7 @@ function render() {
   const m = $("main");
   if (S.view === "list") m.innerHTML = renderList();
   else if (S.view === "map") { m.innerHTML = `<div class="head"><h1>地図</h1><span class="muted small" id="mapInfo"></span><div class="spacer"></div><label class="small"><input type="checkbox" id="openOnly"> 今あいている店だけ</label></div><div id="map"></div>`; drawMap(); }
+  else if (S.view === "plans") renderPlans();
   else if (S.view === "lists") renderLists();
   else if (S.view === "shop") renderShop();
 }
@@ -412,10 +420,10 @@ function detailHtml(s) {
       <div class="bold">${esc(p.name)} ${p.visited ? '<span class="tag" style="background:#DCFCE7;color:#166534">行った</span>' : ""}</div>
       <div class="small muted">${esc(addr(p.address) || p.area || "")}</div>
       ${th || open !== null ? `<div class="small">${open === true ? '<b style="color:var(--ok)">営業中</b>' : open === false ? '<b style="color:var(--danger)">営業時間外</b>' : ""} ${th ? "今日 " + esc(th) : ""}</div>` : ""}
-      ${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}${p.price_range ? `<div class="small muted">${esc(p.price_range)}</div>` : ""}
+      ${p.notes ? `<div class="small muted">${esc(p.notes)}</div>` : ""}${p.google_rating ? `<div class="small muted">Googleの評価 ★${p.google_rating.toFixed(1)}${p.google_rating_count ? `（${p.google_rating_count.toLocaleString()}件）` : ""}</div>` : ""}${p.price_range ? `<div class="small muted">${esc(p.price_range)}</div>` : ""}
       <div class="links"><a class="btn sm" target="_blank" rel="noopener" href="${mapsUrl(p)}">Googleマップ</a><a class="btn out sm" target="_blank" rel="noopener" href="${tabelogUrl(p)}">食べログ</a>${mine ? `<button class="btn out sm" data-visit="${i}">${p.visited ? "行ってない" : "行った"}</button>` : ""}</div>${mine ? cands : ""}</div>`;
   }).join("");
-  const recipe = d.recipe?.ingredients?.length || d.recipe?.steps?.length ? `<div class="box"><h3>材料</h3><ul class="clean">${(d.recipe.ingredients || []).map((x) => `<li>${esc(x.name)}${x.quantity ? ` <span class="muted">${esc(x.quantity)}</span>` : ""}</li>`).join("")}</ul>
+  const recipe = d.recipe?.ingredients?.length || d.recipe?.steps?.length ? `<div class="box"><h3>材料${d.recipe.servings ? `（${d.recipe.servings}人分）` : ""}</h3>${[d.recipe.minutes && `約${d.recipe.minutes}分`, d.recipe.kcal && `1人分 約${d.recipe.kcal}kcal`, d.recipe.protein_g && `たんぱく質 約${d.recipe.protein_g}g`].filter(Boolean).length ? `<div class="small" style="margin-bottom:6px"><b>${[d.recipe.minutes && `約${d.recipe.minutes}分`, d.recipe.kcal && `1人分 約${d.recipe.kcal}kcal`, d.recipe.protein_g && `たんぱく質 約${d.recipe.protein_g}g`].filter(Boolean).join("・")}</b> <span class="muted">（AIの目安）</span></div>` : ""}<ul class="clean">${(d.recipe.ingredients || []).map((x) => `<li>${esc(x.name)}${x.quantity ? ` <span class="muted">${esc(x.quantity)}</span>` : ""}</li>`).join("")}</ul>
     ${d.recipe.ingredients?.length ? `<div style="margin-top:10px"><button class="btn sm" id="toShop">材料を買い物リストに入れる</button></div>` : ""}
     ${d.recipe.steps?.length ? `<h3 style="margin-top:14px">作り方</h3><ol class="steps2">${d.recipe.steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}</div>` : "";
   const products = d.products?.length ? `<div class="box"><h3>紹介されていた物</h3>${d.products.map((p) => { const q = [p.brand, p.name].filter(Boolean).join(" "); return `<div class="place"><div class="bold">${esc(q)}</div>${p.kind ? `<div class="small muted">${esc(p.kind)}</div>` : ""}<div class="links"><a class="btn out sm" target="_blank" rel="noopener" href="${rakutenUrl(q)}">楽天で探す</a><a class="btn out sm" target="_blank" rel="noopener" href="${amazonUrl(q)}">Amazonで探す</a></div></div>`; }).join("")}</div>` : "";
@@ -424,8 +432,14 @@ function detailHtml(s) {
   <div class="in">
     ${s.thumbnail_url ? `<div class="hero"><img src="${esc(s.thumbnail_url)}" alt="" onerror="this.parentNode.remove()"></div>` : ""}
     <div><div class="small muted">${esc([PLATFORM[s.platform], s.author, new Date(s.created_at).toLocaleDateString("ja-JP")].filter(Boolean).join("・"))}${s.is_pr ? "・PR" : ""}</div><h2>${esc(s.title)}</h2></div>
+    ${d.event?.date ? `<div class="box" style="background:var(--warn)"><b>${esc(d.event.date.replaceAll("-", "/"))}${d.event.time ? " " + esc(d.event.time) : ""} 開催</b></div>` : ""}
     ${s.deadline ? `<div class="box" style="background:var(--warn)"><b>⏰ ${esc(s.deadline.replaceAll("-", "/"))} まで</b></div>` : ""}
     ${mine ? "" : `<div class="box small muted">共有リストのメンバーの保存です（見るだけ）</div>`}
+    ${mine ? `<div class="box"><h3>予定</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input class="field" type="date" id="planDate" value="${esc(s.plan_date || "")}" style="width:auto">
+      <select class="field" id="planSlot" style="width:auto">${[["", "いつでも"], ["morning", "あさ"], ["noon", "ひる"], ["night", "よる"]].map(([v, l]) => `<option value="${v}" ${(s.plan_slot || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+      ${s.plan_date ? `<a class="btn out sm" target="_blank" rel="noopener" href="${gcalUrl(s)}">Googleカレンダーに入れる</a><button class="btn out sm" id="planClear">予定から外す</button>` : ""}
+      <div class="spacer"></div><button class="btn ${s.done_at ? "" : "out"}" id="done" style="${s.done_at ? "background:var(--ok)" : ""}">${s.done_at ? doneVerb(s) + "！" : doneVerb(s)}</button></div></div>` : ""}
     <div class="box ${mine ? "" : "hide"}"><h3>分類 <span class="muted small" style="font-weight:400">（押して切り替え）</span></h3><div class="cats" id="cats">${CATS.map((c) => `<button data-c="${c}" style="${s.categories.includes(c) ? `background:${CAT[c].bg};color:${CAT[c].fg};border-color:${CAT[c].accent}` : "background:#F5F4F0;color:#5F6068"}">${CAT[c].label}<span class="small" style="font-weight:400"> ${CAT[c].sub}</span></button>`).join("")}</div></div>
     ${s.summary ? `<div class="box"><h3>まとめ</h3><div>${esc(s.summary)}</div></div>` : ""}
     ${places ? `<div class="box"><h3>お店・スポット</h3>${places}</div>` : ""}
@@ -447,12 +461,18 @@ function bindDetail(s) {
     await sb.from("corrections").insert({ profile_id: S.me.profileId, save_id: s.id, before: { title: s.title, categories: before }, after: { categories: s.categories } });
   };
   if ($("toShop")) $("toShop").onclick = async () => { const items = s.details.recipe.ingredients.map((x) => ({ profile_id: S.me.profileId, save_id: s.id, name: x.name, quantity: x.quantity ?? null })); await sb.from("shopping_items").insert(items); S.shop = null; toast(`材料 ${items.length}品を買い物リストに入れました`); };
+  if ($("planDate")) {
+    const savePlan = async () => { s.plan_date = $("planDate").value || null; s.plan_slot = s.plan_date ? ($("planSlot").value || null) : null; refresh(); await sb.from("saves").update({ plan_date: s.plan_date, plan_slot: s.plan_slot }).eq("id", s.id); toast(s.plan_date ? "予定に入れました" : "予定から外しました"); };
+    $("planDate").onchange = savePlan; $("planSlot").onchange = savePlan;
+    if ($("planClear")) $("planClear").onclick = () => { $("planDate").value = ""; savePlan(); };
+    $("done").onclick = async () => { await toggleDone(s); refresh(); };
+  }
   if (!$("memo")) return;
   $("memo").onblur = async (e) => { if ((s.memo || "") === e.target.value) return; s.memo = e.target.value; await sb.from("saves").update({ memo: s.memo }).eq("id", s.id); toast("メモを保存しました"); };
   $("tags").onchange = async (e) => { s.tags = e.target.value.split(/[、,，\s]+/).map((x) => x.replace(/^#/, "").trim()).filter(Boolean); await sb.from("saves").update({ tags: s.tags }).eq("id", s.id); toast("タグを保存しました"); };
   $("del").onclick = async () => { if (!confirm("この保存を消しますか？元に戻せません。")) return; await sb.from("saves").delete().eq("id", s.id); S.saves = S.saves.filter((x) => x.id !== s.id); closeLayer(); render(); toast("消しました"); };
   $("toList").onclick = () => pickList(s);
-  document.querySelectorAll("[data-visit]").forEach((b) => b.onclick = async () => { const p = s.places[+b.dataset.visit]; p.visited = !p.visited; refresh(); await sb.from("places").update({ visited: p.visited }).eq("id", p.id); });
+  document.querySelectorAll("[data-visit]").forEach((b) => b.onclick = async () => { const p = s.places[+b.dataset.visit]; p.visited = !p.visited; refresh(); await sb.from("places").update({ visited: p.visited, visited_at: p.visited ? new Date().toISOString() : null }).eq("id", p.id); });
   document.querySelectorAll("[data-cand]").forEach((b) => b.onclick = async () => {
     const [i, k] = b.dataset.cand.split(":"); const p = s.places[+i];
     const patch = k === "x" ? { needs_confirm: false } : (({ name, address, google_place_id, lat, lng }) => ({ name, address: address ?? null, google_place_id: google_place_id ?? null, lat: lat ?? null, lng: lng ?? null, needs_confirm: false }))(p.candidates[+k]);
@@ -656,14 +676,68 @@ async function renderShop() {
   };
 }
 
+// ---------- 予定 ----------
+const SLOT = { morning: "あさ", noon: "ひる", night: "よる" };
+const DONE_VERB = { go: "行った", cook: "作った", buy: "買った", watch: "観た", learn: "やってみた" };
+const doneVerb = (s) => DONE_VERB[s.categories?.[0]] || "やった";
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function dayLabel(v) { const [y, m, d] = v.split("-").map(Number); const dt = new Date(y, m - 1, d); const diff = Math.round((dt - new Date(new Date().toDateString())) / 86400000); return `${diff === 0 ? "今日 " : diff === 1 ? "明日 " : ""}${m}/${d}（${"日月火水木金土"[dt.getDay()]}）`; }
+async function toggleDone(s) {
+  const at = s.done_at ? null : new Date().toISOString(); s.done_at = at;
+  await sb.from("saves").update({ done_at: at }).eq("id", s.id);
+  if (s.places?.length) { s.places.forEach((p) => (p.visited = !!at)); await sb.from("places").update({ visited: !!at, visited_at: at }).eq("save_id", s.id); }
+  toast(at ? `${doneVerb(s)}にしました` : "やってないに戻しました");
+}
+function gcalUrl(s) {
+  const [y, m, d] = s.plan_date.split("-").map(Number); const h = { morning: 9, noon: 12, night: 19 }[s.plan_slot];
+  const p2 = (n) => String(n).padStart(2, "0");
+  let dates;
+  if (h == null) { const e = new Date(y, m - 1, d + 1); dates = `${y}${p2(m)}${p2(d)}/${e.getFullYear()}${p2(e.getMonth() + 1)}${p2(e.getDate())}`; }
+  else { const st = new Date(y, m - 1, d, h), en = new Date(st.getTime() + 7200000); const f = (x) => x.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); dates = `${f(st)}/${f(en)}`; }
+  const pl = s.places?.[0];
+  return "https://calendar.google.com/calendar/render?" + new URLSearchParams({ action: "TEMPLATE", text: s.title, dates, details: [s.summary, s.source_url].filter(Boolean).join("\n"), location: pl?.address || pl?.name || "", ctz: "Asia/Tokyo" });
+}
+function renderPlans() {
+  const today = ymd(new Date()), now = new Date();
+  const inMonth = (iso) => { if (!iso) return false; const d = new Date(iso); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); };
+  const saved = S.saves.filter((s) => inMonth(s.created_at)).length, done = S.saves.filter((s) => inMonth(s.done_at)).length;
+  const planned = S.saves.filter((s) => s.plan_date && !s.done_at).sort((a, b) => (a.plan_date < b.plan_date ? -1 : a.plan_date > b.plan_date ? 1 : 0));
+  const groups = {}; for (const s of planned) (groups[s.plan_date < today ? "past" : s.plan_date] ??= []).push(s);
+  const keys = Object.keys(groups).sort((a, b) => (a === "past" ? -1 : b === "past" ? 1 : a < b ? -1 : 1));
+  $("main").innerHTML = `<div class="head"><h1>予定</h1><span class="muted small">${now.getMonth() + 1}月はとっといた ${saved}件・やった ${done}件</span></div>
+  ${keys.length ? keys.map((k) => `<h3 style="margin:18px 0 8px;${k === "past" ? "color:var(--danger)" : ""}">${k === "past" ? "過ぎた予定（まだやっていない）" : dayLabel(k)}</h3>
+    ${groups[k].map((s) => `<div class="box" style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+      <div style="width:64px;text-align:center;border-right:2px dashed var(--line);padding-right:10px"><div class="small bold" style="color:${CAT[s.categories[0]]?.fg || "inherit"}">${CAT[s.categories[0]]?.label || ""}</div><div class="bold" style="font-size:22px">${Number(s.plan_date.slice(8))}</div><div class="small muted">${SLOT[s.plan_slot] || "いつでも"}</div></div>
+      <div style="flex:1;min-width:0;cursor:pointer" data-open="${s.id}"><div class="bold">${esc(s.title)}</div><div class="small muted">${esc((s.places || []).map((p) => p.name).join("・") || s.summary || "")}</div></div>
+      <button class="btn out sm" data-done="${s.id}">${doneVerb(s)}</button></div>`).join("")}`).join("")
+    : `<div class="box muted">まだ予定がありません。保存を開いて「予定」で日にちを選ぶと、ここに並びます。</div>`}`;
+  $("main").querySelectorAll("[data-open]").forEach((el) => (el.onclick = () => openSave(el.dataset.open)));
+  $("main").querySelectorAll("[data-done]").forEach((el) => (el.onclick = async () => { const s = S.saves.find((x) => x.id === el.dataset.done); await toggleDone(s); renderPlans(); }));
+}
+
+// ---------- Notion ----------
+async function notionSync() {
+  try { let n = 0; for (let i = 0; i < 60; i++) { const r = await call("notion", { action: "sync" }); n += r.synced; if (r.done) break; } toast(n ? `${n}件をNotionに書き出しました` : "新しく書き出すものはありません"); }
+  catch (e) { toast(e.message || "書き出せませんでした"); }
+}
+
 // ---------- 設定 ----------
 $("menuBtn").onclick = () => modal(`<h2>設定</h2>
   <div class="box"><div class="bold">${S.me?.plan === "plus" ? "とっとく＋をご利用中" : "無料プラン"}</div><div class="small muted">プランの変更はスマホのアプリからできます。</div></div>
   <div class="box"><div class="bold">書き出す</div><div class="links" style="margin-top:8px"><button class="btn out sm" id="csv">表にして書き出す（CSV）</button></div></div>
+  <div class="box"><div class="bold">Notionに書き出す</div><div class="small muted" id="notionInfo">確認しています…</div><div class="links" style="margin-top:8px" id="notionBtns"></div></div>
   <div class="box small muted">ショートカット：ページで Ctrl+V（⌘V）するとリンクや画像をそのまま保存／ファイルをドラッグしても保存できます。</div>
   <button class="btn danger" id="out">このブラウザからログアウト</button>
   <p class="small muted" style="margin:0"><a href="../privacy.html" target="_blank">プライバシーポリシー</a>・<a href="../terms.html" target="_blank">利用規約</a></p>`, (root) => {
   root.querySelector("#csv").onclick = exportCsv;
+  call("notion", { action: "status" }).then((st) => {
+    root.querySelector("#notionInfo").textContent = st.connected ? `${st.workspace || "Notion"}とつながっています` : "保存をNotionのデータベースに書き出せます（分類・場所・予定・やったかどうか）";
+    root.querySelector("#notionBtns").innerHTML = st.connected ? `<button class="btn sm" id="nSync">今すぐ書き出す</button><button class="btn out sm" id="nOff">つながりを切る</button>` : `<button class="btn out sm" id="nOn">Notionとつなぐ</button>`;
+    if (st.connected) {
+      root.querySelector("#nSync").onclick = () => { toast("書き出しています…"); notionSync(); };
+      root.querySelector("#nOff").onclick = async () => { if (!confirm("Notionとのつながりを切りますか？（書き出したページは消えません）")) return; await call("notion", { action: "disconnect" }); closeModal(); toast("切りました"); };
+    } else root.querySelector("#nOn").onclick = async () => { try { const r = await call("notion", { action: "start", returnTo: "web" }); location.href = r.url; } catch (e) { toast(e.message); } };
+  }).catch(() => (root.querySelector("#notionInfo").textContent = "今は使えません"));
   root.querySelector("#out").onclick = async () => {
     if (!confirm("このブラウザからログアウトしますか？（保存は消えません）")) return;
     await call("ingest", { action: "web_logout" }).catch(() => {});
