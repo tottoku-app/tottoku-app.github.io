@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["BZ3GD2K8CY.jp.tottoku.app"],
+        "components": [
+          { "/": "/l/*", "comment": "公開・共有リスト" },
+          { "/": "/s/*", "comment": "家族の買い物リスト" },
+          { "/": "/app/*", "comment": "ブラウザ版（アプリが入っていればアプリで開く）" }
+        ]
+      }
+    ]
+  }
+}
