@@ -18,7 +18,7 @@ h1{font-size:24px;font-weight:900;margin:8px 0 2px;line-height:1.4}.muted{color:
 <div class="bar"><a id="open" href="#">とっとくアプリで開く</a></div>
 <script>
 const API = "https://ckdlguqmscqhveuoeljf.supabase.co/functions/v1/lists";
-const CAT = { go:["行く","#FFEDD5","#9A3412"], cook:["作る","#DCFCE7","#166534"], buy:["買う","#EDE9FE","#5B21B6"], watch:["観る","#DBEAFE","#1E40AF"], learn:["知る","#CCFBF1","#115E59"] };
+const CAT = { go:["行く","#FFEDD5","#9A3412"], cook:["作る","#DCFCE7","#166534"], buy:["買う","#EDE9FE","#5B21B6"], watch:["観る","#DBEAFE","#1E40AF"], learn:["知る","#FEF3C7","#92400E"] };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const code = new URLSearchParams(location.search).get("code") || "";
 document.getElementById("open").href = "tottoku://list?code=" + encodeURIComponent(code);
