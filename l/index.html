@@ -31,6 +31,10 @@ fetch(API + "?code=" + encodeURIComponent(code)).then(r => r.ok ? r.json() : Pro
     ${(s.places||[]).map(p => `<div class="place"><span>${esc(p.name)}<br><span class="muted">${esc((p.address||"").replace(/^日本、?/,""))}</span></span><a href="${maps(p)}">地図</a></div>`).join("")}
     ${s.source_url ? `<div style="margin-top:8px"><a class="muted" href="${esc(s.source_url)}">元の投稿</a></div>` : ""}
   </div>`).join("");
-  document.getElementById("root").innerHTML = `<h1>${esc(l.title)}</h1><p class="muted">${l.items.length}件・${l.members}人で作っています</p>${items || '<p class="muted">まだ何もありません</p>'}`;
+  const by = l.by || l.handle ? `<p class="muted">作った人：${esc(l.by || "")}${l.handle ? ` <a href="https://www.instagram.com/${encodeURIComponent(l.handle.replace(/^@/, ""))}/" rel="noopener">@${esc(l.handle.replace(/^@/, ""))}</a>` : ""}</p>` : "";
+  const desc = l.description ? `<p>${esc(l.description)}</p>` : "";
+  const meta = [`${l.items.length}件`, l.copies ? `${l.copies}人がとっといた` : "", l.members > 1 ? `${l.members}人で作っています` : ""].filter(Boolean).join("・");
+  document.getElementById("root").innerHTML = `<h1>${esc(l.title)}</h1>${by}${desc}<p class="muted">${meta}</p>${items || '<p class="muted">まだ何もありません</p>'}`;
+  if (l.isPublic) document.getElementById("open").textContent = "このリストをまるごと、とっとく";
 }).catch(() => { document.getElementById("root").innerHTML = '<h1>リストが見つかりません</h1><p class="muted">リンクがまちがっているか、消されたリストです。</p>'; });
 </script></body></html>
