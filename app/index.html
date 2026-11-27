@@ -8,6 +8,7 @@
 <link rel="icon" href="../icon.png">
 <link rel="apple-touch-icon" href="../icon.png">
 <meta name="theme-color" content="#F5F4F0">
+<meta name="apple-itunes-app" content="app-id=6839922621, app-argument=https://tottoku-app.jp/app/">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -161,7 +162,14 @@ ol.steps2 li{margin:4px 0}
         <li>「ブラウザ用のコードを出す」を押す</li>
       </ol>
     </div>
-    <p class="small muted" style="margin:16px 0 0">アプリをまだ入れていない方は <a href="../">こちら</a></p>
+    <div class="steps" style="margin-top:14px">
+      <b style="color:var(--ink)">アプリをまだ入れていない方</b>
+      <p class="small" style="margin:6px 0 10px">ブラウザ版は、スマホのアプリとつないで使います。まずスマホに入れてください（無料）。</p>
+      <div class="links" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+        <a class="btn sm" href="https://apps.apple.com/jp/app/id6839922621" target="_blank" rel="noopener">App Storeで入れる</a>
+        <a class="btn out sm" href="https://line.me/R/msg/text/?とっとく（SNSの保存を整理するアプリ）%0Ahttps://apps.apple.com/jp/app/id6839922621" target="_blank" rel="noopener">スマホにLINEで送る</a>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -183,6 +191,7 @@ ol.steps2 li{margin:4px 0}
       </nav>
       <div class="spacer"></div>
       <button class="btn" id="addBtn" title="リンクや画像を保存（Ctrl+V でも保存できます）">＋ 保存</button>
+      <button class="btn out sm" id="appBtn" title="スマホのアプリで開く・アプリでできること">アプリで開く</button>
       <button class="btn out sm" id="menuBtn" title="設定">設定</button>
     </div>
   </header>
@@ -403,11 +412,12 @@ $("q").addEventListener("keydown", async (e) => {
 // ---------- 詳細 ----------
 function openSave(id) {
   const s = S.saves.find((x) => x.id === id) || S.extra[id]; if (!s) return;
+  S.openId = id;
   $("layer").innerHTML = `<div class="veil" id="veil"><div class="panel" role="dialog" aria-label="保存の詳細">${detailHtml(s)}</div></div>`;
   $("veil").addEventListener("click", (e) => { if (e.target.id === "veil") closeLayer(); });
   bindDetail(s);
 }
-function closeLayer() { $("layer").innerHTML = ""; }
+function closeLayer() { $("layer").innerHTML = ""; S.openId = null; }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLayer(); });
 
 function detailHtml(s) {
@@ -428,7 +438,7 @@ function detailHtml(s) {
     ${d.recipe.steps?.length ? `<h3 style="margin-top:14px">作り方</h3><ol class="steps2">${d.recipe.steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}</div>` : "";
   const products = d.products?.length ? `<div class="box"><h3>紹介されていた物</h3>${d.products.map((p) => { const q = [p.brand, p.name].filter(Boolean).join(" "); return `<div class="place"><div class="bold">${esc(q)}</div>${p.kind ? `<div class="small muted">${esc(p.kind)}</div>` : ""}<div class="links"><a class="btn out sm" target="_blank" rel="noopener" href="${rakutenUrl(q)}">楽天で探す</a><a class="btn out sm" target="_blank" rel="noopener" href="${amazonUrl(q)}">Amazonで探す</a></div></div>`; }).join("")}</div>` : "";
   const works = d.works?.length ? `<div class="box"><h3>作品</h3>${d.works.map((w) => `<div class="place"><div class="bold">${esc(w.title)}</div><div class="small muted">${esc([w.kind, w.where].filter(Boolean).join("・"))}</div></div>`).join("")}</div>` : "";
-  return `<div class="top"><button class="btn out sm" id="close">✕ 閉じる</button><div class="spacer"></div>${s.source_url ? `<a class="btn sm" target="_blank" rel="noopener" href="${esc(s.source_url)}">元の投稿を開く ↗</a>` : ""}</div>
+  return `<div class="top"><button class="btn out sm" id="close">✕ 閉じる</button><div class="spacer"></div>${/iPhone|iPad|Android/i.test(navigator.userAgent) ? `<button class="btn out sm" id="inApp">アプリで開く</button>` : ""}${s.source_url ? `<a class="btn sm" target="_blank" rel="noopener" href="${esc(s.source_url)}">元の投稿を開く ↗</a>` : ""}</div>
   <div class="in">
     ${s.thumbnail_url ? `<div class="hero"><img src="${esc(s.thumbnail_url)}" alt="" onerror="this.parentNode.remove()"></div>` : ""}
     <div><div class="small muted">${esc([PLATFORM[s.platform], s.author, new Date(s.created_at).toLocaleDateString("ja-JP")].filter(Boolean).join("・"))}${s.is_pr ? "・PR" : ""}</div><h2>${esc(s.title)}</h2></div>
@@ -451,6 +461,7 @@ function detailHtml(s) {
 }
 
 function bindDetail(s) {
+  if ($("inApp")) $("inApp").onclick = () => openInApp();
   $("close").onclick = closeLayer;
   const refresh = () => { const p = document.querySelector(".panel"); const top = p.scrollTop; p.innerHTML = detailHtml(s); p.scrollTop = top; bindDetail(s); render(); };
   $("cats").onclick = async (e) => {
@@ -522,7 +533,7 @@ async function saveUrls(text) {
   for (const url of urls) {
     try { await call("ingest", { url, async: true }); ok++; } catch (e) { toast(e.message); }
   }
-  if (ok) { toast(ok === 1 ? "保存しました。読み取っています…" : `${ok}件を保存しました。読み取っています…`); load(); }
+  if (ok) { toast(ok === 1 ? "保存しました。読み取っています…（スマホなら投稿の「共有」から2タップ）" : `${ok}件を保存しました。読み取っています…`); load(); }
   return ok;
 }
 
@@ -722,6 +733,26 @@ async function notionSync() {
 }
 
 // ---------- 設定 ----------
+// ---- アプリへ ----
+// スマホ：アプリが入っていれば今見ている保存をアプリで開く（入っていなければ App Store へ）
+// パソコン：アプリでできることと、スマホに送る方法を出す
+const APP_STORE = "https://apps.apple.com/jp/app/id6839922621";
+const isPhone = /iPhone|iPad|Android/i.test(navigator.userAgent);
+function openInApp() {
+  const id = S.openId;
+  const deep = id ? `tottoku://save/${id}` : "tottoku://";
+  const t = setTimeout(() => { if (!document.hidden) location.href = APP_STORE; }, 1600);
+  document.addEventListener("visibilitychange", () => clearTimeout(t), { once: true });
+  location.href = deep;
+}
+$("appBtn").onclick = () => isPhone ? openInApp() : modal(`<h2>スマホのアプリだと、もっと楽に</h2>
+  <div class="box"><div class="bold">保存がいちばん速い</div><div class="small muted">XやInstagramの投稿で「共有」→「とっとく」の2タップ。コピーしたリンク・新しいスクショも自動で拾います。</div></div>
+  <div class="box"><div class="bold">「今日」の画面</div><div class="small muted">近くで今あいているお店、今夜作れるレシピ、わすれていた保存を、開くたびに集めます。</div></div>
+  <div class="box"><div class="bold">知らせてくれる</div><div class="small muted">予定の朝・期限の前日・近くに来たとき・値下がりしたときに通知。カレンダーやウィジェットにも。</div></div>
+  <div class="box"><div class="bold">ほかにも</div><div class="small muted">見つける（みんながとっといているお店）、旅程づくり、料理モード、ハンコ帳、家族と買い物リスト。</div></div>
+  <div class="links" style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="${APP_STORE}" target="_blank" rel="noopener">App Storeで入れる</a><a class="btn out" href="https://line.me/R/msg/text/?${encodeURIComponent("とっとく\n" + APP_STORE)}" target="_blank" rel="noopener">スマホにLINEで送る</a></div>
+  <p class="small muted" style="margin:0">すでに入っている方は、スマホのアプリを開けば、ここで保存したものも入っています。</p>`, () => {});
+
 $("menuBtn").onclick = () => modal(`<h2>設定</h2>
   <div class="box"><div class="bold">${S.me?.plan === "plus" ? "とっとく＋をご利用中" : "無料プラン"}</div><div class="small muted">プランの変更はスマホのアプリからできます。</div></div>
   <div class="box"><div class="bold">書き出す</div><div class="links" style="margin-top:8px"><button class="btn out sm" id="csv">表にして書き出す（CSV）</button></div></div>
