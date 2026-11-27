@@ -1,0 +1,36 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>とっとく リスト</title>
+<link rel="icon" href="../icon.png"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+body{font-family:"Zen Kaku Gothic New",-apple-system,"Hiragino Sans",sans-serif;background:#F5F4F0;color:#1A1A1E;margin:0}
+main{max-width:640px;margin:0 auto;padding:24px 18px 120px}
+h1{font-size:24px;font-weight:900;margin:8px 0 2px;line-height:1.4}.muted{color:#5F6068;font-size:13px}
+.item{background:#fff;border:1px solid #E4E2DC;border-radius:16px;padding:14px 16px;margin:10px 0}
+.item b{font-size:16px}.tag{display:inline-block;font-weight:700;font-size:12px;border-radius:6px;padding:0 7px;margin-right:4px}
+.place{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid #E4E2DC;margin-top:10px;padding-top:10px;font-size:14px}
+.place a{flex:none;text-decoration:none;font-weight:700;font-size:12px;color:#fff;background:#1A1A1E;border-radius:10px;padding:6px 10px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#F5F4F0;border-top:1px solid #E4E2DC;padding:12px 18px 24px}
+.bar a{display:block;max-width:640px;margin:0 auto;text-align:center;background:#1A1A1E;color:#fff;text-decoration:none;font-weight:700;border-radius:14px;padding:15px}
+.brand{display:flex;gap:10px;align-items:center;text-decoration:none;color:#1A1A1E;font-weight:900}.brand img{width:32px;height:32px;border-radius:8px}
+</style></head><body><main>
+<a class="brand" href="../"><img src="../icon.png" alt="">とっとく</a>
+<div id="root"><p class="muted">読み込んでいます…</p></div>
+</main>
+<div class="bar"><a id="open" href="#">とっとくアプリで開く</a></div>
+<script>
+const API = "https://ckdlguqmscqhveuoeljf.supabase.co/functions/v1/lists";
+const CAT = { go:["行く","#FFEDD5","#9A3412"], cook:["作る","#DCFCE7","#166534"], buy:["買う","#EDE9FE","#5B21B6"], watch:["観る","#DBEAFE","#1E40AF"], learn:["知る","#CCFBF1","#115E59"] };
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const code = new URLSearchParams(location.search).get("code") || "";
+document.getElementById("open").href = "tottoku://list?code=" + encodeURIComponent(code);
+const maps = (p) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent([p.name, p.address].filter(Boolean).join(" ")) + (p.google_place_id ? "&query_place_id=" + p.google_place_id : "");
+fetch(API + "?code=" + encodeURIComponent(code)).then(r => r.ok ? r.json() : Promise.reject()).then((l) => {
+  document.title = l.title + "｜とっとく";
+  const items = l.items.map((s) => `<div class="item">
+    <div>${(s.categories||[]).map(c => CAT[c] ? `<span class="tag" style="background:${CAT[c][1]};color:${CAT[c][2]}">${CAT[c][0]}</span>` : "").join("")}</div>
+    <b>${esc(s.title)}</b>${s.note ? `<div class="muted">${esc(s.note)}</div>` : ""}
+    ${(s.places||[]).map(p => `<div class="place"><span>${esc(p.name)}<br><span class="muted">${esc((p.address||"").replace(/^日本、?/,""))}</span></span><a href="${maps(p)}">地図</a></div>`).join("")}
+    ${s.source_url ? `<div style="margin-top:8px"><a class="muted" href="${esc(s.source_url)}">元の投稿</a></div>` : ""}
+  </div>`).join("");
+  document.getElementById("root").innerHTML = `<h1>${esc(l.title)}</h1><p class="muted">${l.items.length}件・${l.members}人で作っています</p>${items || '<p class="muted">まだ何もありません</p>'}`;
+}).catch(() => { document.getElementById("root").innerHTML = '<h1>リストが見つかりません</h1><p class="muted">リンクがまちがっているか、消されたリストです。</p>'; });
+</script></body></html>
