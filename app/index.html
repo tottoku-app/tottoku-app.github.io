@@ -242,6 +242,12 @@ const rakutenUrl = (q) => { const u = `https://search.rakuten.co.jp/search/mall/
 const amazonUrl = (q) => `https://www.amazon.co.jp/s?k=${encodeURIComponent(q)}${AMAZON_TAG ? `&tag=${encodeURIComponent(AMAZON_TAG)}` : ""}`;
 const addr = (a) => (a || "").replace(/^日本、?\s*/, "").replace(/^〒\d{3}-\d{4}\s*/, "");
 let toastT;
+function toastUndo(msg, undo) {
+  const t = $("toast"); t.innerHTML = ""; t.append(document.createTextNode(msg + "　"));
+  const b = document.createElement("button"); b.textContent = "元に戻す"; b.style.cssText = "background:none;border:0;color:inherit;font:inherit;font-weight:900;text-decoration:underline;cursor:pointer";
+  b.onclick = () => { t.classList.add("hide"); undo(); }; t.append(b); t.classList.remove("hide");
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.add("hide"), 6000);
+}
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.remove("hide"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add("hide"), Math.max(3500, msg.length * 120)); }
 
 async function call(fn, body) {
@@ -869,7 +875,13 @@ function bindDetail(s) {
   if (!$("memo")) return;
   $("memo").onblur = async (e) => { if ((s.memo || "") === e.target.value) return; s.memo = e.target.value; await sb.from("saves").update({ memo: s.memo }).eq("id", s.id); toast("メモを保存しました"); };
   $("tags").onchange = async (e) => { s.tags = e.target.value.split(/[、,，\s]+/).map((x) => x.replace(/^#/, "").trim()).filter(Boolean); await sb.from("saves").update({ tags: s.tags }).eq("id", s.id); toast("タグを保存しました"); };
-  $("del").onclick = async () => { if (!confirm("この保存を消しますか？元に戻せません。")) return; await sb.from("saves").delete().eq("id", s.id); S.saves = S.saves.filter((x) => x.id !== s.id); closeLayer(); render(); toast("消しました"); };
+  // 確認ダイアログは出さず、6秒のあいだ「元に戻す」を出してから本当に消す
+  $("del").onclick = () => {
+    const idx = S.saves.findIndex((x) => x.id === s.id); S.saves = S.saves.filter((x) => x.id !== s.id); closeLayer(); render();
+    let undone = false;
+    const timer = setTimeout(async () => { if (!undone) await sb.from("saves").delete().eq("id", s.id); }, 6000);
+    toastUndo(`「${s.title.slice(0, 20)}」を消しました`, () => { undone = true; clearTimeout(timer); S.saves.splice(Math.max(0, idx), 0, s); render(); toast("元に戻しました"); });
+  };
   $("toList").onclick = () => pickList(s);
   document.querySelectorAll("[data-visit]").forEach((b) => b.onclick = async () => { const p = s.places[+b.dataset.visit]; p.visited = !p.visited; refresh(); await sb.from("places").update({ visited: p.visited, visited_at: p.visited ? new Date().toISOString() : null }).eq("id", p.id); });
   document.querySelectorAll("[data-cand]").forEach((b) => b.onclick = async () => {
