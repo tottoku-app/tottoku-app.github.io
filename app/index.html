@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>とっとく</title>
+<title>とっとく（ブラウザお試し版）</title>
 <meta name="description" content="SNSで見つけたお店・レシピ・欲しい物を、リンクを貼るだけでAIが整理。登録なしで使えます。">
 <meta property="og:title" content="とっとく ブラウザ版"><meta property="og:description" content="SNSの「あとで」を、ほんとにやる。"><meta property="og:image" content="https://tottoku-app.jp/icon.png"><meta property="og:url" content="https://tottoku-app.jp/app/"><link rel="canonical" href="https://tottoku-app.jp/app/"><link rel="icon" href="../icon.png">
 <meta name="description" content="SNSで保存した投稿を、行く・作る・買う・観る・知るに自動で分けて整理するアプリ。ブラウザ版。">
@@ -154,7 +154,8 @@ html{scrollbar-gutter:stable}
 <section id="login" class="hide">
   <div class="login-card">
     <img src="../icon.png" alt="とっとく">
-    <h1>とっとく ブラウザ版</h1>
+    <h1>とっとく ブラウザお試し版</h1>
+    <p class="small" style="margin:6px 0 10px;padding:10px 12px;border-radius:10px;background:var(--warn,#FFF8EC);text-align:left">ブラウザ版は<b>お試し版</b>です。メインはiPhoneアプリ（近日公開）で、ブラウザ版は機能が限られ、スマホのアプリより使いにくいところがあります。<br>できないこと：投稿の「共有」から保存・Instagram/TikTokの中身の自動読み取り・通知（近く・値下がり・予定）・旅程づくり・とっとく＋の登録</p>
     <p style="margin:4px 0 2px;font-weight:900;font-size:18px">SNSの「あとで」を、ほんとにやる。</p>
     <p class="muted small" style="margin:0 0 10px">リンクを貼るだけで、AIが中身を読んで「行く・作る・買う・観る・知る」に分けます。お店は地図に、材料は買い物リストに。</p>
     <input class="field" id="startUrl" placeholder="気になった投稿のリンクを貼る（なくてもOK）" aria-label="保存したいリンク" style="width:100%;max-width:360px;margin-top:6px">
@@ -180,6 +181,7 @@ html{scrollbar-gutter:stable}
 
 <!-- 本体 -->
 <div id="app" class="hide">
+  <div class="small" role="note" style="padding:6px 16px;background:var(--warn,#FFF8EC);text-align:center">ブラウザお試し版です（機能が限られます）。いちばん使いやすいのはiPhoneアプリです。</div>
   <header>
     <div class="bar">
       <a class="brand" href="./"><img src="../icon.png" alt="">とっとく</a>
@@ -348,7 +350,7 @@ function showApp() {
 const VIEW_NAME = { today: "今日", list: "一覧", map: "地図", plans: "予定", lists: "リスト", shop: "買い物" };
 function setTabs() {
   document.querySelectorAll("#tabs button").forEach((b) => { const on = b.dataset.v === S.view; b.classList.toggle("on", on); if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
-  document.title = `${VIEW_NAME[S.view] || ""}｜とっとく`;
+  document.title = `${VIEW_NAME[S.view] || ""}｜とっとく お試し版`;
   if (location.hash !== "#" + S.view && !(history.state && history.state.save)) history.pushState(null, "", "#" + S.view);
 }
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; S.view = b.dataset.v; setTabs(); render(); });
