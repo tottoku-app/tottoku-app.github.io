@@ -391,11 +391,12 @@ function filtered() {
   let xs = S.saves;
   if (S.cat === "review") xs = xs.filter((s) => s.needs_review);
   else if (S.cat !== "all") xs = xs.filter((s) => s.categories.includes(S.cat));
-  const q = S.q.trim().toLowerCase();
+  const norm = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/[\u30a1-\u30f6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+  const q = norm(S.q.trim());
   if (q) {
-    const words = q.split(/\s+/);
+    const words = q.split(/\s+/).filter(Boolean);
     xs = xs.filter((s) => {
-      const hay = [s.title, s.summary, s.author, s.memo, ...(s.tags || []), ...(s.places || []).flatMap((p) => [p.name, p.area, p.address]), JSON.stringify(s.details || {})].join(" ").toLowerCase();
+      const hay = norm([s.title, s.summary, s.author, s.memo, ...(s.tags || []), ...(s.places || []).flatMap((p) => [p.name, p.area, p.address]), JSON.stringify(s.details || {})].join(" "));
       return words.every((w) => hay.includes(w));
     });
   }
@@ -822,8 +823,14 @@ function detailHtml(s) {
   <div class="in">
     ${s.thumbnail_url ? `<div class="hero"><img src="${esc(s.thumbnail_url)}" alt="" onerror="this.parentNode.remove()"></div>` : ""}
     <div><div class="small muted">${esc([srcName(s), s.author, new Date(s.created_at).toLocaleDateString("ja-JP")].filter(Boolean).join("・"))}${s.is_pr ? "・PR" : ""}</div><h2>${esc(s.title)}</h2></div>
+    ${(() => { const pl = s.places || [], ing = d.recipe?.ingredients || [], pr = d.products || [];
+      const srcL = ["youtube", "tiktok"].includes(s.platform) ? "元の動画を開く" : s.platform === "web" ? "元のページを開く" : "元の投稿を開く";
+      if (pl.length) return `<a class="btn" style="width:100%;text-align:center;padding:13px" target="_blank" rel="noopener" href="${mapsUrl(pl[0])}">${pl.length > 1 ? "地図で開く（1件目）" : "地図で開く"}</a>`;
+      if (ing.length && mine) return `<button class="btn" style="width:100%;padding:13px" onclick="document.getElementById('toShop')?.click()">材料を買い物リストに入れる</button>`;
+      if (pr.length) { const q = [cleanBrand(pr[0].brand), pr[0].name].filter(Boolean).join(" "); return `<a class="btn" style="width:100%;text-align:center;padding:13px" target="_blank" rel="noopener" href="${rakutenUrl(q)}">楽天で見る</a>`; }
+      return s.source_url ? `<a class="btn" style="width:100%;text-align:center;padding:13px" target="_blank" rel="noopener" href="${esc(s.source_url)}">${srcL}</a>` : ""; })()}
     ${d.event?.date ? `<div class="box" style="background:var(--warn)"><b>${esc(d.event.date.replaceAll("-", "/"))}${d.event.time ? " " + esc(d.event.time) : ""} 開催</b></div>` : ""}
-    ${s.deadline ? `<div class="box" style="background:var(--warn)"><b>⏰ ${esc(s.deadline.replaceAll("-", "/"))} まで</b></div>` : ""}
+    ${s.deadline ? `<div class="box" style="background:var(--warn)"><b>${esc(s.deadline.replaceAll("-", "/"))} まで</b></div>` : ""}
     ${mine ? "" : `<div class="box small muted">共有リストのメンバーの保存です（見るだけ）</div>`}
     ${mine ? `<div class="box"><h3>予定</h3><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="field" type="date" id="planDate" aria-label="予定の日にち" value="${esc(s.plan_date || "")}" style="width:auto">
